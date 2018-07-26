@@ -1,12 +1,14 @@
 package miner
 
 import (
+	"github.com/asaskevich/EventBus"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/consensus"
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/log"
 	"sync/atomic"
 	"time"
+	"github.com/vitelabs/go-vite/events"
 )
 
 // Package miner implements vite block creation
@@ -50,19 +52,17 @@ type Miner struct {
 	worker               *worker
 	committee            *consensus.Committee
 	mem                  *consensus.SubscribeMem
-	downloaderRegister   DownloaderRegister
-	downloaderRegisterCh chan int
+	bus                  EventBus.Bus
 	dwlFinished          bool
 }
 
-func NewMiner(chain SnapshotChainRW, downloaderRegister DownloaderRegister, coinbase types.Address, committee *consensus.Committee) *Miner {
+func NewMiner(chain SnapshotChainRW, bus EventBus.Bus, coinbase types.Address, committee *consensus.Committee) *Miner {
 	miner := &Miner{chain: chain, coinbase: coinbase}
 
 	miner.committee = committee
 	miner.mem = &consensus.SubscribeMem{Mem: miner.coinbase, Notify: make(chan time.Time)}
 	miner.worker = &worker{chain: chain, workChan: miner.mem.Notify, coinbase: coinbase}
-	miner.downloaderRegister = downloaderRegister
-	miner.downloaderRegisterCh = make(chan int)
+	miner.bus = bus
 	miner.dwlFinished = false
 	return miner
 }
@@ -70,21 +70,12 @@ func (self *Miner) Init() {
 	self.PreInit()
 	defer self.PostInit()
 	self.worker.Init()
-	self.downloaderRegister(self.downloaderRegisterCh)
-	go func() {
-		select {
-		// Handle ChainHeadEvent
-		case event := <-self.downloaderRegisterCh:
-			if event == 0 {
-				log.Info("downloader success.")
-				self.dwlFinished = true
-				self.committee.Subscribe(self.mem)
-			} else {
-				log.Error("downloader error.")
-			}
-
-		}
-	}()
+	dwlDownFn := func() {
+		log.Info("downloader success.")
+		self.dwlFinished = true
+		self.committee.Subscribe(self.mem)
+	}
+	self.bus.SubscribeOnce(events.DwlDone, dwlDownFn)
 }
 
 func (self *Miner) Start() {

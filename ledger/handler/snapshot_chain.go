@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"github.com/asaskevich/EventBus"
 	"github.com/pkg/errors"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/crypto"
@@ -15,6 +16,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"github.com/vitelabs/go-vite/events"
 )
 
 type SnapshotChain struct {
@@ -23,8 +25,7 @@ type SnapshotChain struct {
 	scAccess *access.SnapshotChainAccess
 	acAccess *access.AccountChainAccess
 	aAccess  *access.AccountAccess
-
-	syncDownChannelList []chan<- int
+	eventBus EventBus.Bus
 }
 
 func NewSnapshotChain(vite Vite) *SnapshotChain {
@@ -33,31 +34,18 @@ func NewSnapshotChain(vite Vite) *SnapshotChain {
 		scAccess: access.GetSnapshotChainAccess(),
 		acAccess: access.GetAccountChainAccess(),
 		aAccess:  access.GetAccountAccess(),
+		eventBus: vite.EventBus(),
 	}
 }
 
 var registerChannelLock sync.Mutex
 
-func (sc *SnapshotChain) registerFirstSyncDown(firstSyncDownChan chan<- int) {
-	registerChannelLock.Lock()
-	sc.syncDownChannelList = append(sc.syncDownChannelList, firstSyncDownChan)
-	registerChannelLock.Unlock()
-
-	if syncInfo.IsFirstSyncDone {
-		sc.onFirstSyncDown()
-	}
-}
 
 func (sc *SnapshotChain) onFirstSyncDown() {
 	registerChannelLock.Lock()
+	defer registerChannelLock.Unlock()
 	syncInfo.IsFirstSyncDone = true
-	go func() {
-		defer registerChannelLock.Unlock()
-		for _, syncDownChannel := range sc.syncDownChannelList {
-			syncDownChannel <- 0
-		}
-		sc.syncDownChannelList = []chan<- int{}
-	}()
+	sc.eventBus.Publish(events.DwlDone)
 }
 
 // HandleGetBlock

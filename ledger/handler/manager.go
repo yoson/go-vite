@@ -34,7 +34,3 @@ func (m *Manager) Ac() handler_interface.AccountChain {
 func (m *Manager) Sc() handler_interface.SnapshotChain {
 	return m.sc
 }
-
-func (m *Manager) RegisterFirstSyncDown(firstSyncDownChan chan<- int) {
-	m.sc.registerFirstSyncDown(firstSyncDownChan)
-}

@@ -9,6 +9,7 @@ import (
 	"github.com/vitelabs/go-vite/ledger/handler_interface"
 	protoInterface "github.com/vitelabs/go-vite/protocols/interfaces"
 
+	"github.com/asaskevich/EventBus"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/config"
 	"github.com/vitelabs/go-vite/consensus"
@@ -20,6 +21,7 @@ import (
 )
 
 type Vite struct {
+	eventBus      EventBus.Bus
 	config        *config.Config
 	ledger        *ledgerHandler.Manager
 	p2p           *p2p.Server
@@ -50,7 +52,8 @@ type Vite struct {
 //}
 
 func New(cfg *config.Config) (*Vite, error) {
-	vite := &Vite{config: cfg}
+	eventBus := EventBus.New()
+	vite := &Vite{config: cfg, eventBus: eventBus}
 
 	vite.ledger = ledgerHandler.NewManager(vite, cfg.DataDir)
 
@@ -73,7 +76,7 @@ func New(cfg *config.Config) (*Vite, error) {
 	if cfg.Miner.Miner && cfg.Miner.Coinbase != "" {
 		log.Println("Vite backend new: Start miner.")
 		coinbase, _ := types.HexToAddress(cfg.Miner.Coinbase)
-		vite.miner = miner.NewMiner(vite.ledger.Sc(), vite.ledger.RegisterFirstSyncDown, coinbase, committee)
+		vite.miner = miner.NewMiner(vite.ledger.Sc(), eventBus, coinbase, committee)
 		pwd := "123"
 		vite.walletManager.KeystoreManager.Unlock(coinbase, pwd, 0)
 		committee.Init()
@@ -114,4 +117,8 @@ func (v *Vite) Miner() *miner.Miner {
 }
 func (v *Vite) Verifier() consensus.Verifier {
 	return v.verifier
+}
+
+func (v *Vite) EventBus() EventBus.Bus {
+	return v.eventBus
 }
