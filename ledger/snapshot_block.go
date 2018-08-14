@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"github.com/gin-gonic/gin/json"
 	"github.com/golang/protobuf/proto"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/crypto"
@@ -72,6 +73,51 @@ type SnapshotBlock struct {
 
 	// Public Key
 	PublicKey ed25519.PublicKey
+}
+
+func (sb *SnapshotBlock) ToJson() ([]byte, error) {
+	jsonMap := map[string]interface{}{}
+
+	// Block hash
+	if sb.Hash != nil {
+		jsonMap["hash"] = sb.Hash.String()
+	}
+
+	if sb.PrevHash != nil {
+		jsonMap["prevHash"] = sb.PrevHash.String()
+	}
+
+	jsonMap["height"] = sb.Height
+	if sb.Producer != nil {
+		jsonMap["producer"] = sb.Producer.String()
+	}
+
+	if sb.Snapshot != nil {
+		snapshot := map[string]interface{}{}
+		for address, snapshotItem := range sb.Snapshot {
+			snapshot[address] = struct {
+				AccountBlockHash   string
+				AccountBlockHeight *big.Int
+			}{
+				AccountBlockHash:   snapshotItem.AccountBlockHash.String(),
+				AccountBlockHeight: snapshotItem.AccountBlockHeight,
+			}
+		}
+		jsonMap["snapshot"] = snapshot
+	}
+	if sb.Signature != nil {
+		jsonMap["signature"] = hex.EncodeToString(sb.Signature)
+	}
+	jsonMap["timestamp"] = sb.Timestamp
+	jsonMap["amount"] = sb.Amount
+	jsonMap["publicKey"] = sb.PublicKey.Hex()
+
+	result, err := json.Marshal(jsonMap)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
 
 func (sb *SnapshotBlock) IsGenesisBlock() bool {

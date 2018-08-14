@@ -9,6 +9,12 @@
 			"revisionTime": "2017-06-26T11:06:00Z"
 		},
 		{
+			"checksumSHA1": "wXyTbvaU3pHDkbLxQqtNcmaYzks=",
+			"path": "github.com/Shopify/sarama",
+			"revision": "e7238b119b7daab993720f0153eafb88e2b0ac1f",
+			"revisionTime": "2018-07-30T13:20:37Z"
+		},
+		{
 			"checksumSHA1": "0EhLvZ6Og9HYqJtCc2Dzs1EgM30=",
 			"path": "github.com/bitly/go-simplejson",
 			"revision": "0c965951289cce37dec52ad1f34200fefc816777",

@@ -4,6 +4,8 @@ import (
 	"math/big"
 
 	"bytes"
+	"encoding/hex"
+	"github.com/gin-gonic/gin/json"
 	"github.com/golang/protobuf/proto"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/crypto"
@@ -148,6 +150,79 @@ type AccountBlock struct {
 	FAmount *big.Int
 }
 
+func (ab *AccountBlock) ToJson() ([]byte, error) {
+	jsonMap := map[string]interface{}{}
+	jsonMap["meta"] = ab.Meta
+	if ab.AccountAddress != nil {
+		jsonMap["accountAddress"] = ab.AccountAddress.String()
+	}
+
+	if ab.PublicKey != nil {
+		jsonMap["publicKey"] = ab.PublicKey.Hex()
+	}
+
+	if ab.To != nil {
+		jsonMap["to"] = ab.To.String()
+	}
+	if ab.From != nil {
+		jsonMap["from"] = ab.From.String()
+	}
+
+	if ab.FromHash != nil {
+		jsonMap["fromHash"] = ab.FromHash.String()
+	}
+
+	if ab.PrevHash != nil {
+		jsonMap["prevHash"] = ab.PrevHash.String()
+	}
+
+	// Block hash
+	if ab.Hash != nil {
+		jsonMap["hash"] = ab.Hash.String()
+	}
+
+	// Balance of current account
+	if ab.Balance != nil {
+		jsonMap["balance"] = ab.Balance.String()
+	}
+
+	// Amount of this transaction
+	if ab.Amount != nil {
+		jsonMap["amount"] = ab.Amount.String()
+	}
+
+	// Timestamp
+	jsonMap["timestamp"] = ab.Timestamp
+
+	// Id of token received or sent
+	jsonMap["tokenId"] = ab.TokenId.String()
+
+	// Data requested or repsonsed
+	jsonMap["data"] = ab.Data
+
+	// Snapshot timestamp
+	if ab.SnapshotTimestamp != nil {
+		jsonMap["snapshotTimestamp"] = ab.SnapshotTimestamp.String()
+	}
+
+	// Signature of current block
+	if ab.Signature != nil {
+		jsonMap["signature"] = hex.EncodeToString(ab.Signature)
+	}
+
+	jsonMap["nounce"] = ab.Nounce
+
+	jsonMap["difficulty"] = ab.Difficulty
+
+	jsonMap["fAmount"] = ab.FAmount
+
+	result, err := json.Marshal(jsonMap)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
 func (ab *AccountBlock) ComputeHash() (*types.Hash, error) {
 	// Hash source data:
 	var source []byte
