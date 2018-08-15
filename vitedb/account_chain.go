@@ -1,11 +1,11 @@
 package vitedb
 
 import (
-	"github.com/vitelabs/go-vite/log15"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/ledger"
+	"github.com/vitelabs/go-vite/log15"
 	"math/big"
 	"strconv"
 )
@@ -18,7 +18,9 @@ type AccountChain struct {
 var _accountchain *AccountChain
 
 func GetAccountChain() *AccountChain {
+
 	db, err := GetLDBDataBase(DB_LEDGER)
+
 	if err != nil {
 		log15.Root().Crit(err.Error())
 	}

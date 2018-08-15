@@ -8,7 +8,12 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+)
+
+var (
+	wg sync.WaitGroup
 )
 
 func getSender() *Sender {
@@ -20,11 +25,16 @@ func getSender() *Sender {
 }
 
 func TestSender(t *testing.T) {
-	sender := getSender()
-	testInsertAccountBlock(t, sender)
-	testInsertSnapshotBlock(t, sender)
-	testDeleteAccountBlocks(t, sender)
-	testDeleteSnapshotBlocks(t, sender)
+	getSender()
+	//for i := 0; i < 50000; i++ {
+	//	testInsertAccountBlock(t, sender)
+	//	testInsertSnapshotBlock(t, sender)
+	//	testDeleteAccountBlocks(t, sender)
+	//	testDeleteSnapshotBlocks(t, sender)
+	//}
+
+	wg.Add(1)
+	wg.Wait()
 }
 
 func testInsertAccountBlock(t *testing.T, sender *Sender) {
@@ -37,7 +47,7 @@ func testInsertAccountBlock(t *testing.T, sender *Sender) {
 
 	signature := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 
-	result := sender.InsertAccountBlock(&ledger.AccountBlock{
+	sender.InsertAccountBlock(&ledger.AccountBlock{
 		Meta: &ledger.AccountBlockMeta{
 			AccountId: big.NewInt(123),
 			Height:    big.NewInt(234),
@@ -61,7 +71,6 @@ func testInsertAccountBlock(t *testing.T, sender *Sender) {
 		Difficulty:        []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 0},
 		FAmount:           big.NewInt(123),
 	})
-	t.Log(result)
 }
 
 func testInsertSnapshotBlock(t *testing.T, sender *Sender) {

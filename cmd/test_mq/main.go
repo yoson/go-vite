@@ -48,7 +48,7 @@ func main() {
 ProducerLoop:
 	for {
 		time.Sleep(turnInterval * time.Millisecond)
-		message := &sarama.ProducerMessage{Topic: "test", Value: sarama.StringEncoder("testing 123")}
+		message := &sarama.ProducerMessage{Topic: "test", Value: sarama.StringEncoder("testing 123456789")}
 
 		select {
 		case producer.Input() <- message:

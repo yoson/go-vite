@@ -4,6 +4,7 @@ import (
 	"math/big"
 
 	"bytes"
+	"encoding/base64"
 	"encoding/hex"
 	"github.com/gin-gonic/gin/json"
 	"github.com/golang/protobuf/proto"
@@ -25,6 +26,10 @@ type AccountBlockMeta struct {
 
 	// Is snapshotted
 	IsSnapshotted bool
+}
+type AccountBlockMetaJSON struct {
+	// AccountBlock height
+	Height *big.Int `json:"height"`
 }
 
 func (abm *AccountBlockMeta) NetSerialize() ([]byte, error) {
@@ -150,9 +155,14 @@ type AccountBlock struct {
 	FAmount *big.Int
 }
 
-func (ab *AccountBlock) ToJson() ([]byte, error) {
+func (ab *AccountBlock) ToJson(encodeData bool) ([]byte, error) {
 	jsonMap := map[string]interface{}{}
 	jsonMap["meta"] = ab.Meta
+	if ab.Meta != nil {
+		jsonMap["meta"] = &AccountBlockMetaJSON{
+			Height: ab.Meta.Height,
+		}
+	}
 	if ab.AccountAddress != nil {
 		jsonMap["accountAddress"] = ab.AccountAddress.String()
 	}
@@ -198,7 +208,13 @@ func (ab *AccountBlock) ToJson() ([]byte, error) {
 	jsonMap["tokenId"] = ab.TokenId.String()
 
 	// Data requested or repsonsed
-	jsonMap["data"] = ab.Data
+	if ab.Data != "" {
+		if encodeData {
+			jsonMap["data"] = base64.StdEncoding.EncodeToString([]byte(ab.Data))
+		} else {
+			jsonMap["data"] = ab.Data
+		}
+	}
 
 	// Snapshot timestamp
 	if ab.SnapshotTimestamp != nil {

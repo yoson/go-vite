@@ -46,6 +46,11 @@ type SnapshotItem struct {
 	AccountBlockHeight *big.Int
 }
 
+type SnapshotItemJSON struct {
+	AccountBlockHash   string   `json:"accountBlockHash"`
+	AccountBlockHeight *big.Int `json:"accountBlockHeight"`
+}
+
 type SnapshotBlock struct {
 	// Snapshot block hash
 	Hash *types.Hash
@@ -95,10 +100,7 @@ func (sb *SnapshotBlock) ToJson() ([]byte, error) {
 	if sb.Snapshot != nil {
 		snapshot := map[string]interface{}{}
 		for address, snapshotItem := range sb.Snapshot {
-			snapshot[address] = struct {
-				AccountBlockHash   string
-				AccountBlockHeight *big.Int
-			}{
+			snapshot[address] = &SnapshotItemJSON{
 				AccountBlockHash:   snapshotItem.AccountBlockHash.String(),
 				AccountBlockHeight: snapshotItem.AccountBlockHeight,
 			}

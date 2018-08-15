@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"github.com/pkg/errors"
 	"github.com/vitelabs/go-vite/common/types"
+	"github.com/vitelabs/go-vite/config"
 	"github.com/vitelabs/go-vite/crypto"
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/ledger/access"
@@ -48,11 +49,11 @@ type SnapshotChain struct {
 	pool           *pending.SnapshotchainPool
 }
 
-func NewSnapshotChain(vite Vite) *SnapshotChain {
+func NewSnapshotChain(vite Vite, cfg *config.Ledger) *SnapshotChain {
 	sc := &SnapshotChain{
 		vite:     vite,
-		scAccess: access.GetSnapshotChainAccess(),
-		acAccess: access.GetAccountChainAccess(),
+		scAccess: access.GetSnapshotChainAccess(cfg),
+		acAccess: access.GetAccountChainAccess(cfg),
 		aAccess:  access.GetAccountAccess(),
 
 		status: 0,
@@ -483,7 +484,7 @@ func (sc *SnapshotChain) GetBlockByHeight(height *big.Int) (*ledger.SnapshotBloc
 }
 func (sc *SnapshotChain) isFirstSyncDone() bool {
 	if sc.status >= STATUS_FIRST_SYNCING && syncInfo.CurrentHeight != nil && syncInfo.TargetHeight != nil {
-		return  syncInfo.CurrentHeight.Cmp(syncInfo.TargetHeight) >= 0
+		return syncInfo.CurrentHeight.Cmp(syncInfo.TargetHeight) >= 0
 	}
 	return false
 }

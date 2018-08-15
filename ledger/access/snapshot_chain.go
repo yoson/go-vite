@@ -6,7 +6,9 @@ import (
 	errors2 "github.com/pkg/errors"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/vitelabs/go-vite/common/types"
+	"github.com/vitelabs/go-vite/config"
 	"github.com/vitelabs/go-vite/ledger"
+	"github.com/vitelabs/go-vite/ledger/send_explorer"
 	"github.com/vitelabs/go-vite/log15"
 	"github.com/vitelabs/go-vite/vitedb"
 	"math/big"
@@ -18,18 +20,22 @@ type SnapshotChainAccess struct {
 	accountStore *vitedb.Account
 	bwMutex      sync.RWMutex
 	log          log15.Logger
+
+	cfg *config.Ledger
 }
 
 var snapshotChainAccess *SnapshotChainAccess
 
-func GetSnapshotChainAccess() *SnapshotChainAccess {
+func GetSnapshotChainAccess(cfg *config.Ledger) *SnapshotChainAccess {
 	if snapshotChainAccess == nil {
 		snapshotChainAccess = &SnapshotChainAccess{
 			store:        vitedb.GetSnapshotChain(),
 			accountStore: vitedb.GetAccount(),
 			log:          log15.New("module", "ledger/access/snapshot_chain"),
+			cfg:          cfg,
 		}
 	}
+
 	return snapshotChainAccess
 }
 
@@ -44,8 +50,16 @@ func (sca *SnapshotChainAccess) CheckExists(blockHash *types.Hash) bool {
 
 func (sca *SnapshotChainAccess) DeleteBlocks(blockHash *types.Hash, count uint64) error {
 	batch := new(leveldb.Batch)
-	if err := sca.store.DeleteBlocks(batch, blockHash, count); err != nil {
-		return err
+	var deletedHashList []*types.Hash
+	var deleteErr error
+	if deletedHashList, deleteErr = sca.store.DeleteBlocks(batch, blockHash, count); deleteErr != nil {
+		return deleteErr
+	}
+	if sca.cfg.SendExplorer {
+		sender := send_explorer.GetSender(sca.cfg.SendExplorerAddrs, sca.cfg.SendExplorerFilename)
+		if err := sender.DeleteSnapshotBlocks(deletedHashList); err != nil {
+			return err
+		}
 	}
 
 	sca.store.DbBatchWrite(batch)
@@ -75,7 +89,7 @@ func (sca *SnapshotChainAccess) CheckAndCreateGenesisBlocks() {
 		}
 	}
 
-	accountChainAccess = GetAccountChainAccess()
+	accountChainAccess = GetAccountChainAccess(sca.cfg)
 
 	// Check accountGenesisBlockFirst
 	accountGenesisBlockFirst, err := accountChainAccess.GetBlockByHash(ledger.AccountGenesisBlockFirst.Hash)
@@ -162,11 +176,19 @@ func (sca *SnapshotChainAccess) WriteBlock(block *ledger.SnapshotBlock, signFunc
 	var batch = new(leveldb.Batch)
 	err := sca.writeBlock(batch, block, signFunc)
 
+	if sca.cfg.SendExplorer {
+		sender := send_explorer.GetSender(sca.cfg.SendExplorerAddrs, sca.cfg.SendExplorerFilename)
+		if err := sender.InsertSnapshotBlock(block); err != nil {
+			return err
+		}
+	}
+
 	// When *ScWriteError data type convert to error interface, nil become non-nil. So need return nil manually
 	if err == nil {
 		sca.store.DbBatchWrite(batch)
 		return nil
 	}
+
 	return err
 }
 
@@ -214,7 +236,7 @@ func (sca *SnapshotChainAccess) writeBlock(batch *leveldb.Batch, block *ledger.S
 		var needSyncAccountBlocks []*WscNeedSyncErrData
 		snapshot := block.Snapshot
 
-		accountChainAccess = GetAccountChainAccess()
+		accountChainAccess = GetAccountChainAccess(sca.cfg)
 
 		for addr, snapshotItem := range snapshot {
 			accountAddress, _ := types.HexToAddress(addr)

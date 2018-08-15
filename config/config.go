@@ -11,8 +11,9 @@ import (
 )
 
 type Config struct {
-	P2P   `json:"P2P"`
-	Miner `json:"Miner"`
+	P2P    `json:"P2P"`
+	Miner  `json:"Miner"`
+	Ledger `json:"Ledger"`
 
 	// global keys
 	DataDir string `json:"DataDir"`
@@ -66,6 +67,11 @@ func RecoverConfig() {
 			Coinbase:      "",
 			MinerInterval: 6,
 		},
+
+		Ledger: Ledger{
+			SendExplorer: true,
+		},
+
 		DataDir: common.DefaultDataDir(),
 	}
 }
@@ -73,7 +79,7 @@ func RecoverConfig() {
 func init() {
 	GlobalConfig = new(Config)
 
-	if text, err := ioutil.ReadFile("vite.config.json"); err == nil {
+	if text, err := ioutil.ReadFile(configFileName); err == nil {
 		err = json.Unmarshal(text, GlobalConfig)
 		if err != nil {
 			fmt.Println("config file unmarshal error: ", err)

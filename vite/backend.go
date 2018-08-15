@@ -54,7 +54,7 @@ func New(cfg *config.Config) (*Vite, error) {
 	log := log15.New("module", "vite/backend")
 	vite := &Vite{config: cfg}
 
-	vite.ledger = ledgerHandler.NewManager(vite, cfg.DataDir)
+	vite.ledger = ledgerHandler.NewManager(vite, cfg.DataDir, &cfg.Ledger)
 
 	vite.walletManager = wallet.NewManagerAndInit(cfg.DataDir)
 	vite.signer = signer.NewMaster(vite)

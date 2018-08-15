@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/vitelabs/go-vite/common/types"
+	"github.com/vitelabs/go-vite/config"
 	"github.com/vitelabs/go-vite/crypto"
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/ledger/access"
@@ -41,14 +42,17 @@ type AccountChain struct {
 	pool *pending.AccountchainPool
 }
 
-func NewAccountChain(vite Vite) *AccountChain {
+func NewAccountChain(vite Vite, cfg *config.Ledger) *AccountChain {
+
 	ac := &AccountChain{
 		vite:     vite,
-		acAccess: access.GetAccountChainAccess(),
+		acAccess: access.GetAccountChainAccess(cfg),
+
 		aAccess:  access.GetAccountAccess(),
-		scAccess: access.GetSnapshotChainAccess(),
-		uAccess:  access.GetUnconfirmedAccess(),
-		tAccess:  access.GetTokenAccess(),
+		scAccess: access.GetSnapshotChainAccess(cfg),
+
+		uAccess: access.GetUnconfirmedAccess(),
+		tAccess: access.GetTokenAccess(),
 
 		downloadTasks:     make(map[string]*downloadTask),
 		downloadIdAddress: make(map[uint64]*types.Address),

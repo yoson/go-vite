@@ -37,19 +37,21 @@ func (spc *SnapshotChain) DbBatchWrite(batch *leveldb.Batch) {
 	spc.db.Leveldb.Write(batch, nil)
 }
 
-func (spc *SnapshotChain) DeleteBlocks(batch *leveldb.Batch, blockHash *types.Hash, count uint64) error {
+func (spc *SnapshotChain) DeleteBlocks(batch *leveldb.Batch, blockHash *types.Hash, count uint64) ([]*types.Hash, error) {
 	height, ghErr := spc.GetHeightByHash(blockHash)
 	if ghErr != nil {
-		return ghErr
+		return nil, ghErr
 	}
 
 	currentHeight := height
 	processCount := uint64(0)
 
+	var deletedHashList []*types.Hash
+
 	for currentHeight.Cmp(big.NewInt(0)) > 0 && processCount < count {
 		currentBlock, gbbhErr := spc.GetBLockByHeight(currentHeight)
 		if gbbhErr != nil {
-			return gbbhErr
+			return nil, gbbhErr
 		}
 
 		// Revert snapshot status
@@ -63,14 +65,16 @@ func (spc *SnapshotChain) DeleteBlocks(batch *leveldb.Batch, blockHash *types.Ha
 		heightKey, ckheightErr := createKey(DBKP_SNAPSHOTBLOCK, height)
 
 		if ckheightErr != nil {
-			return ckheightErr
+			return nil, ckheightErr
 		}
 
 		hashKey, ckhashErr := createKey(DBKP_SNAPSHOTBLOCKHASH, currentBlock.Hash.Bytes())
 
 		if ckhashErr != nil {
-			return ckhashErr
+			return nil, ckhashErr
 		}
+
+		deletedHashList = append(deletedHashList, currentBlock.Hash)
 
 		batch.Delete(hashKey)
 		batch.Delete(heightKey)
@@ -78,7 +82,7 @@ func (spc *SnapshotChain) DeleteBlocks(batch *leveldb.Batch, blockHash *types.Ha
 		currentHeight = currentHeight.Sub(currentHeight, big.NewInt(1))
 		processCount++
 	}
-	return nil
+	return deletedHashList, nil
 }
 
 func (spc *SnapshotChain) GetHeightByHash(blockHash *types.Hash) (*big.Int, error) {

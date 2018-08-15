@@ -5,8 +5,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/vitelabs/go-vite/common/types"
+	"github.com/vitelabs/go-vite/config"
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/ledger/errors"
+	"github.com/vitelabs/go-vite/ledger/send_explorer"
 	"github.com/vitelabs/go-vite/log15"
 	"github.com/vitelabs/go-vite/vitedb"
 	"math/big"
@@ -145,11 +147,12 @@ type AccountChainAccess struct {
 	tokenStore       *vitedb.Token
 	unconfirmedStore *vitedb.Unconfirmed
 	bwMutex          *blockWriteMutex
+	cfg              *config.Ledger
 }
 
 var accountChainAccess *AccountChainAccess
 
-func GetAccountChainAccess() *AccountChainAccess {
+func GetAccountChainAccess(cfg *config.Ledger) *AccountChainAccess {
 	if accountChainAccess == nil {
 		accountChainAccess = &AccountChainAccess{
 			store:            vitedb.GetAccountChain(),
@@ -158,7 +161,9 @@ func GetAccountChainAccess() *AccountChainAccess {
 			tokenStore:       vitedb.GetToken(),
 			unconfirmedStore: vitedb.GetUnconfirmed(),
 			bwMutex:          &blockWriteMutex{},
+			cfg:              cfg,
 		}
+
 	}
 	return accountChainAccess
 }
@@ -187,6 +192,13 @@ func (aca *AccountChainAccess) WriteBlock(block *ledger.AccountBlock, signFunc s
 		// When *AcWriteError data type convert to error interface, nil become non-nil. So need return nil manually
 		if err := aca.writeBlock(batch, block, signFunc); err != nil {
 			return err
+		}
+
+		if aca.cfg.SendExplorer {
+			sender := send_explorer.GetSender(aca.cfg.SendExplorerAddrs, aca.cfg.SendExplorerFilename)
+			if err := sender.InsertAccountBlock(block); err != nil {
+				return err
+			}
 		}
 
 		// [Fixme]
