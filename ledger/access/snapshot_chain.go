@@ -56,7 +56,7 @@ func (sca *SnapshotChainAccess) DeleteBlocks(blockHash *types.Hash, count uint64
 		return deleteErr
 	}
 	if sca.cfg.SendExplorer {
-		sender := send_explorer.GetSender(sca.cfg.SendExplorerAddrs, sca.cfg.SendExplorerFilename)
+		sender := send_explorer.GetSender(sca.cfg.SendExplorerAddrs, sca.cfg.SendExplorerFilename, sca.cfg.SendExplorerTopic)
 		if err := sender.DeleteSnapshotBlocks(deletedHashList); err != nil {
 			return err
 		}
@@ -177,7 +177,7 @@ func (sca *SnapshotChainAccess) WriteBlock(block *ledger.SnapshotBlock, signFunc
 	err := sca.writeBlock(batch, block, signFunc)
 
 	if sca.cfg.SendExplorer {
-		sender := send_explorer.GetSender(sca.cfg.SendExplorerAddrs, sca.cfg.SendExplorerFilename)
+		sender := send_explorer.GetSender(sca.cfg.SendExplorerAddrs, sca.cfg.SendExplorerFilename, sca.cfg.SendExplorerTopic)
 		if err := sender.InsertSnapshotBlock(block); err != nil {
 			return err
 		}

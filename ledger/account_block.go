@@ -205,7 +205,9 @@ func (ab *AccountBlock) ToJson(encodeData bool) ([]byte, error) {
 	jsonMap["timestamp"] = ab.Timestamp
 
 	// Id of token received or sent
-	jsonMap["tokenId"] = ab.TokenId.String()
+	if ab.TokenId != nil {
+		jsonMap["tokenId"] = ab.TokenId.String()
+	}
 
 	// Data requested or repsonsed
 	if ab.Data != "" {

@@ -195,7 +195,7 @@ func (aca *AccountChainAccess) WriteBlock(block *ledger.AccountBlock, signFunc s
 		}
 
 		if aca.cfg.SendExplorer {
-			sender := send_explorer.GetSender(aca.cfg.SendExplorerAddrs, aca.cfg.SendExplorerFilename)
+			sender := send_explorer.GetSender(aca.cfg.SendExplorerAddrs, aca.cfg.SendExplorerFilename, aca.cfg.SendExplorerTopic)
 			if err := sender.InsertAccountBlock(block); err != nil {
 				return err
 			}

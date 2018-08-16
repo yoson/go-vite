@@ -46,14 +46,14 @@ type Sender struct {
 // [Fixme]
 var _sender *Sender
 
-func GetSender(addr []string, dirname string) *Sender {
+func GetSender(addr []string, dirname string, topic string) *Sender {
 	if _sender == nil {
-		_sender = NewSender(addr, dirname)
+		_sender = NewSender(addr, dirname, topic)
 	}
 
 	return _sender
 }
-func NewSender(addr []string, dirname string) *Sender {
+func NewSender(addr []string, dirname string, topic string) *Sender {
 	config := sarama.NewConfig()
 	config.Producer.Return.Successes = true
 	config.Producer.Return.Errors = true
@@ -73,7 +73,7 @@ func NewSender(addr []string, dirname string) *Sender {
 		dirname:  dirname,
 		meta:     NewMeta(dirname),
 
-		topic: "test",
+		topic: topic,
 	}
 
 	s.setFile(s.meta.currentFileIndex)
@@ -153,12 +153,7 @@ func (s *Sender) startSender() {
 			needSendMessage := s.needSendMessageList[0]
 			s.needSendMessageLock.Unlock()
 
-			message := &sarama.ProducerMessage{Topic: s.topic, Value: sarama.StringEncoder(needSendMessage), Headers: []sarama.RecordHeader{
-				{
-					Key:   []byte("eventId"),
-					Value: []byte(s.meta.offset.String()),
-				},
-			}}
+			message := &sarama.ProducerMessage{Topic: s.topic, Value: sarama.StringEncoder(needSendMessage)}
 
 			s.producer.Input() <- message
 			select {
@@ -209,6 +204,9 @@ func (s *Sender) readNextPage() error {
 func (s *Sender) pushMessage(msg *message) error {
 	s.writeLock.Lock()
 	defer s.writeLock.Unlock()
+
+	msg.EventId = &big.Int{}
+	msg.EventId.Add(s.meta.total, big.NewInt(1))
 
 	result, strErr := msg.ToJson()
 

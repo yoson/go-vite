@@ -66,9 +66,23 @@ func (m *meta) flush() error {
 		return err
 	}
 
-	m.file.Truncate(0)
-	m.file.Seek(0, 0)
-	m.file.Write(jsonBytes)
+	tErr := m.file.Truncate(0)
+	if tErr != nil {
+		senderLog.Error(tErr.Error(), "func", "meta.flush")
+		return err
+	}
+	_, sErr := m.file.Seek(0, 0)
+
+	if sErr != nil {
+		senderLog.Error(sErr.Error(), "func", "meta.flush")
+		return err
+	}
+	_, wErr := m.file.Write(jsonBytes)
+
+	if wErr != nil {
+		senderLog.Error(wErr.Error(), "func", "meta.flush")
+		return err
+	}
 
 	return nil
 }

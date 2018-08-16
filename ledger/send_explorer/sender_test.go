@@ -20,7 +20,7 @@ func getSender() *Sender {
 	filename := filepath.Join(common.DefaultDataDir(), "ledger_mq_test")
 	os.Remove(filename)
 
-	sender := NewSender([]string{"118.25.228.148:9092"}, filename)
+	sender := NewSender([]string{"118.25.228.148:9092"}, filename, "test")
 	return sender
 }
 
