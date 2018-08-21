@@ -482,6 +482,7 @@ func (sc *SnapshotChain) GetBlockByHash(hash *types.Hash) (*ledger.SnapshotBlock
 func (sc *SnapshotChain) GetBlockByHeight(height *big.Int) (*ledger.SnapshotBlock, error) {
 	return sc.scAccess.GetBlockByHeight(height)
 }
+
 func (sc *SnapshotChain) isFirstSyncDone() bool {
 	if sc.status >= STATUS_FIRST_SYNCING && syncInfo.CurrentHeight != nil && syncInfo.TargetHeight != nil {
 		return syncInfo.CurrentHeight.Cmp(syncInfo.TargetHeight) >= 0

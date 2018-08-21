@@ -176,15 +176,14 @@ func (sca *SnapshotChainAccess) WriteBlock(block *ledger.SnapshotBlock, signFunc
 	var batch = new(leveldb.Batch)
 	err := sca.writeBlock(batch, block, signFunc)
 
-	if sca.cfg.SendExplorer && err != nil {
-		sender := send_explorer.GetSender(sca.cfg.SendExplorerAddrs, sca.cfg.SendExplorerFilename, sca.cfg.SendExplorerTopic)
-		if err := sender.InsertSnapshotBlock(block); err != nil {
-			return err
-		}
-	}
-
 	// When *ScWriteError data type convert to error interface, nil become non-nil. So need return nil manually
 	if err == nil {
+		if sca.cfg.SendExplorer {
+			sender := send_explorer.GetSender(sca.cfg.SendExplorerAddrs, sca.cfg.SendExplorerFilename, sca.cfg.SendExplorerTopic)
+			if err := sender.InsertSnapshotBlock(block); err != nil {
+				return err
+			}
+		}
 		sca.store.DbBatchWrite(batch)
 		return nil
 	}
