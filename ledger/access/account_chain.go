@@ -253,7 +253,7 @@ func (aca *AccountChainAccess) writeSendBlock(batch *leveldb.Batch, block *ledge
 
 	prevAccountBlockInToken, prevAbErr := aca.store.GetBlockByHeight(accountMeta.AccountId, accountTokenInfo.LastAccountBlockHeight)
 	if prevAbErr != nil || prevAccountBlockInToken == nil ||
-		block.Amount == nil || block.Amount.Cmp(prevAccountBlockInToken.Balance) >= 0 {
+		block.Amount == nil || block.Amount.Cmp(prevAccountBlockInToken.Balance) > 0 {
 		return ledgererrors.ErrBalanceNotEnough
 	}
 
@@ -278,6 +278,9 @@ func (aca *AccountChainAccess) writeReceiveBlock(batch *leveldb.Batch, block *le
 	}
 
 	var amount = fromBlock.Amount
+	if amount == nil {
+		amount = big.NewInt(0)
+	}
 
 	if fromBlock.IsMintageBlock() {
 		// Receive is mintageBlock
