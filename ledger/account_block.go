@@ -32,6 +32,19 @@ type AccountBlockMetaJSON struct {
 	Height *big.Int `json:"height"`
 }
 
+func safeBytes(bigNumber *big.Int) []byte {
+	if bigNumber == nil {
+		return []byte{0}
+	}
+
+	buffer := bigNumber.Bytes()
+	if len(buffer) == 0 {
+		return []byte{0}
+	}
+
+	return buffer
+}
+
 func (abm *AccountBlockMeta) NetSerialize() ([]byte, error) {
 	return abm.DbSerialize()
 }
@@ -351,21 +364,15 @@ func (ab *AccountBlock) GetNetPB() *vitepb.AccountBlockNet {
 		accountBlockNetPB.TokenId = ab.TokenId.Bytes()
 	}
 
-	if ab.Amount != nil {
-		accountBlockNetPB.Amount = ab.Amount.Bytes()
-	}
+	accountBlockNetPB.Amount = safeBytes(ab.Amount)
 
-	if ab.Balance != nil {
-		accountBlockNetPB.Balance = ab.Balance.Bytes()
-	}
+	accountBlockNetPB.Balance = safeBytes(ab.Balance)
 
 	if ab.SnapshotTimestamp != nil {
 		accountBlockNetPB.SnapshotTimestamp = ab.SnapshotTimestamp.Bytes()
 	}
 
-	if ab.FAmount != nil {
-		accountBlockNetPB.FAmount = ab.FAmount.Bytes()
-	}
+	accountBlockNetPB.FAmount = safeBytes(ab.FAmount)
 
 	return accountBlockNetPB
 }
@@ -502,9 +509,7 @@ func (ab *AccountBlock) DbSerialize() ([]byte, error) {
 		accountBlockPB.FromHash = ab.FromHash.Bytes()
 	}
 
-	if ab.Amount != nil {
-		accountBlockPB.Amount = ab.Amount.Bytes()
-	}
+	accountBlockPB.Amount = safeBytes(ab.Amount)
 
 	if ab.To != nil {
 		accountBlockPB.To = ab.To.Bytes()
@@ -518,13 +523,9 @@ func (ab *AccountBlock) DbSerialize() ([]byte, error) {
 		accountBlockPB.SnapshotTimestamp = ab.SnapshotTimestamp.Bytes()
 	}
 
-	if ab.Balance != nil {
-		accountBlockPB.Balance = ab.Balance.Bytes()
-	}
+	accountBlockPB.Balance = safeBytes(ab.Balance)
 
-	if ab.FAmount != nil {
-		accountBlockPB.FAmount = ab.FAmount.Bytes()
-	}
+	accountBlockPB.FAmount = safeBytes(ab.FAmount)
 
 	return proto.Marshal(accountBlockPB)
 }
