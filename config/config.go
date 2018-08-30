@@ -49,7 +49,7 @@ func defaultConfig() {
 			BootNodes:            nil,
 			Addr:                 "0.0.0.0:8483",
 			Datadir:              common.DefaultDataDir(),
-			NetID:                6,
+			NetID:                7,
 		},
 		Miner: &Miner{
 			Miner:         false,
@@ -57,7 +57,7 @@ func defaultConfig() {
 			MinerInterval: 6,
 		},
 		Ledger: &Ledger{
-			IsDownload: true, // Default download ledger zip
+			IsDownload: false, // Default download ledger zip
 		},
 		DataDir: common.DefaultDataDir(),
 	}
