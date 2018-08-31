@@ -11,6 +11,7 @@ import (
 	"github.com/vitelabs/go-vite/crypto/ed25519"
 	"github.com/vitelabs/go-vite/vitepb"
 	"math/big"
+	"sort"
 )
 
 type SnapshotBlockList []*SnapshotBlock
@@ -122,6 +123,29 @@ func (sb *SnapshotBlock) ToJson() ([]byte, error) {
 	return result, nil
 }
 
+type sortedSnapshotItem struct {
+	address string
+	block   *SnapshotItem
+}
+type sortedSnapshot []*sortedSnapshotItem
+
+func (a sortedSnapshot) Len() int           { return len(a) }
+func (a sortedSnapshot) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a sortedSnapshot) Less(i, j int) bool { return a[i].address < a[j].address }
+
+func newSortedSnapshot(snapshot map[string]*SnapshotItem) sortedSnapshot {
+	ss := sortedSnapshot{}
+	for addr, snapshotItem := range snapshot {
+		ss = append(ss, &sortedSnapshotItem{
+			address: addr,
+			block:   snapshotItem,
+		})
+	}
+
+	sort.Sort(ss)
+	return ss
+}
+
 func (sb *SnapshotBlock) IsGenesisBlock() bool {
 	return sb.PrevHash == nil &&
 		bytes.Equal(sb.Producer.Bytes(), SnapshotGenesisBlock.Producer.Bytes()) &&
@@ -132,14 +156,27 @@ func (sb *SnapshotBlock) IsGenesisBlock() bool {
 }
 func (sb *SnapshotBlock) getSnapshotBytes() []byte {
 	var source []byte
-	for addr, snapshotItem := range sb.Snapshot {
-		address, _ := types.HexToAddress(addr)
-		source = append(source, address.Bytes()...)
-		source = append(source, snapshotItem.AccountBlockHash.Bytes()...)
-		source = append(source, snapshotItem.AccountBlockHeight.Bytes()...)
+
+	// Hard fork
+	if sb.Height.Cmp(big.NewInt(112000)) >= 0 {
+		ss := newSortedSnapshot(sb.Snapshot)
+		for _, snapshotItem := range ss {
+			address, _ := types.HexToAddress(snapshotItem.address)
+			source = append(source, address.Bytes()...)
+			source = append(source, snapshotItem.block.AccountBlockHash.Bytes()...)
+			source = append(source, snapshotItem.block.AccountBlockHeight.Bytes()...)
+		}
+	} else {
+		for addr, snapshotItem := range sb.Snapshot {
+			address, _ := types.HexToAddress(addr)
+			source = append(source, address.Bytes()...)
+			source = append(source, snapshotItem.AccountBlockHash.Bytes()...)
+			source = append(source, snapshotItem.AccountBlockHeight.Bytes()...)
+		}
 	}
 
 	return source
+
 }
 
 func (sb *SnapshotBlock) ComputeHash() (*types.Hash, error) {

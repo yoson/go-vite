@@ -5,4 +5,6 @@ type Ledger struct {
 	SendExplorerAddrs    []string `json:"SendExplorerAddrs"`
 	SendExplorerFilename string   `json:"SendExplorerFilename"`
 	SendExplorerTopic    string   `json:"SendExplorerTopic"`
+
+	IsDownload bool `json:"IsDownload"`
 }
