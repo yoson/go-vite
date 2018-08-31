@@ -59,7 +59,7 @@ func defaultConfig() {
 
 		Ledger: &Ledger{
 			SendExplorer: true,
-			IsDownload:   true, // Default download ledger zip
+			IsDownload:   false, // Default download ledger zip
 		},
 
 		DataDir: common.DefaultDataDir(),
