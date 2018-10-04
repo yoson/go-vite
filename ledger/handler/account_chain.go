@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"fmt"
 )
 
 var acLog = log15.New("module", "ledger/handler/account_chain")
@@ -96,6 +97,7 @@ func (ac *AccountChain) ProcessBlock(block *ledger.AccountBlock) {
 	globalRWMutex.RLock()
 	defer globalRWMutex.RUnlock()
 
+	fmt.Println(block.AccountAddress.String())
 	if block.PublicKey == nil || block.Hash == nil || block.Signature == nil {
 		// Discard the block.
 		acLog.Info("AccountChain HandleSendBlocks: discard block, because block.PublicKey or block.Hash or block.Signature is nil.")
