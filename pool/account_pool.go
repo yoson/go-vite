@@ -49,10 +49,11 @@ func (self *accountPoolBlock) PrevHash() types.Hash {
 	return self.block.PrevHash
 }
 
-func newAccountPool(name string, rw *accountCh, v *ForkVersion, log log15.Logger) *accountPool {
+func newAccountPool(name string, rw *accountCh, v *ForkVersion, log log15.Logger, f *accountSyncer) *accountPool {
 	pool := &accountPool{}
 	pool.Id = name
 	pool.rw = rw
+	pool.f = f
 	pool.version = v
 	pool.loopTime = time.Now()
 	pool.log = log.New("name", name)
