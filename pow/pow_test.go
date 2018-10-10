@@ -11,34 +11,40 @@ import (
 	"math"
 	"testing"
 	"time"
-	"sync"
 )
 
 func TestGetPowNonce(t *testing.T) {
 	N := 10
-	breaker := make(chan struct{})
+	//breaker := make(chan struct{})
 	data := crypto.Hash256([]byte{1})
-	mutex := sync.Mutex{}
+	//mutex := sync.Mutex{}
 	timeList := make([]int64, N)
 	for i := 0; i < N; i++ {
-		go func(i int) {
-			select {
-			case <-breaker:
-			default:
-				startTime := time.Now()
-				nonce := pow.GetPowNonce(nil, types.DataHash([]byte{1}))
-				assert.True(t, pow.CheckPowNonce(nil, nonce, data))
-				d := time.Now().Sub(startTime).Nanoseconds()
-				fmt.Println("#", i, ":", d/1e6, "ms", "nonce", nonce)
-				mutex.Lock()
-				timeList[i] = d
-				mutex.Unlock()
-				close(breaker)
-			}
-		}(i)
+		//go func(i int) {
+		//	select {
+		//	case <-breaker:
+		//	default:
+		//		startTime := time.Now()
+		//		nonce := pow.GetPowNonce(nil, types.DataHash([]byte{1}))
+		//		assert.True(t, pow.CheckPowNonce(nil, nonce, data))
+		//		d := time.Now().Sub(startTime).Nanoseconds()
+		//		fmt.Println("#", i, ":", d/1e6, "ms", "nonce", nonce)
+		//		mutex.Lock()
+		//		timeList[i] = d
+		//		mutex.Unlock()
+		//		close(breaker)
+		//	}
+		//}(i)
+
+		startTime := time.Now()
+		nonce := pow.GetPowNonce(nil, types.DataHash([]byte{1}))
+		assert.True(t, pow.CheckPowNonce(nil, nonce, data))
+		d := time.Now().Sub(startTime).Nanoseconds()
+		fmt.Println("#", i, ":", d/1e6, "ms", "nonce", nonce)
+		timeList[i] = d
 
 	}
-	<-breaker
+	//<-breaker
 
 	max, min, timeSum, average, std := statistics(timeList)
 	fmt.Println("average", average, "max", max, "min", min, "sum", timeSum, "standard deviation", std)

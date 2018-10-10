@@ -214,7 +214,7 @@ func loadNodeConfigFromFile(ctx *cli.Context, cfg *node.Config) {
 func makeRunLogFile(cfg *node.Config) {
 	if fileName, e := cfg.RunLogFile(); e == nil {
 		log15.Root().SetHandler(
-			log15.LvlFilterHandler(log15.LvlInfo, log15.Must.FileHandler(fileName, log15.TerminalFormat())),
+			log15.LvlFilterHandler(log15.LvlDebug, log15.Must.FileHandler(fileName, log15.TerminalFormat())),
 		)
 	}
 }
