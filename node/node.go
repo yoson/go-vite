@@ -11,10 +11,12 @@ import (
 	"github.com/vitelabs/go-vite/config"
 	"github.com/vitelabs/go-vite/log15"
 	"github.com/vitelabs/go-vite/p2p"
+	"github.com/vitelabs/go-vite/pow/remote"
 	"github.com/vitelabs/go-vite/rpc"
 	"github.com/vitelabs/go-vite/rpcapi"
 	"github.com/vitelabs/go-vite/vite"
 	"github.com/vitelabs/go-vite/wallet"
+	"github.com/vitelabs/go-vite/pow"
 )
 
 var (
@@ -131,6 +133,10 @@ func (node *Node) Prepare() error {
 
 	//Protocols setting, maybe should move into module.Start()
 	node.p2pServer.Protocols = append(node.p2pServer.Protocols, node.viteServer.Net().Protocols()...)
+
+	//init rpc_PowServerIp
+	remote.InitUrl(node.Config().PowServerIp)
+	pow.Init(node.Config().VMTestParamEnabled)
 
 	// Start vite
 	if err := node.viteServer.Init(); err != nil {
@@ -275,7 +281,7 @@ func (node *Node) startVite() error {
 func (node *Node) startRPC() error {
 
 	// Init rpc log
-	rpcapi.Init(node.Config().DataDir, node.Config().LogLevel, node.Config().TestTokenHexPrivKey, node.config.TestTokenTti)
+	rpcapi.Init(node.config.DataDir, node.config.LogLevel, node.config.TestTokenHexPrivKey, node.config.TestTokenTti)
 
 	// Start the various API endpoints, terminating all in case of errors
 	if err := node.startInProcess(node.GetInProcessApis()); err != nil {

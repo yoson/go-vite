@@ -15,6 +15,14 @@ import (
 
 var errNoSuitablePeer = errors.New("no suitable peer")
 
+type gid struct {
+	index uint64 // atomic
+}
+
+func (g *gid) MsgID() uint64 {
+	return atomic.AddUint64(&g.index, 1)
+}
+
 type MsgIder interface {
 	MsgID() uint64
 }
@@ -109,7 +117,7 @@ func (f *fetcher) FetchSnapshotBlocks(start types.Hash, count uint64) {
 		return
 	}
 
-	if atomic.LoadInt32(&f.ready) == 0 {
+	if f.ready == 0 {
 		f.log.Debug("not ready")
 		return
 	}
@@ -143,7 +151,7 @@ func (f *fetcher) FetchAccountBlocks(start types.Hash, count uint64, address *ty
 		return
 	}
 
-	if atomic.LoadInt32(&f.ready) == 0 {
+	if f.ready == 0 {
 		f.log.Warn("not ready")
 		return
 	}
@@ -186,7 +194,7 @@ func (f *fetcher) FetchAccountBlocksWithHeight(start types.Hash, count uint64, a
 		return
 	}
 
-	if atomic.LoadInt32(&f.ready) == 0 {
+	if f.ready == 0 {
 		f.log.Warn("not ready")
 		return
 	}

@@ -2,6 +2,9 @@ package generator
 
 import (
 	"errors"
+	"math/big"
+	"time"
+
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/log15"
@@ -9,8 +12,6 @@ import (
 	"github.com/vitelabs/go-vite/vm"
 	"github.com/vitelabs/go-vite/vm_context"
 	"github.com/vitelabs/go-vite/vm_context/vmctxt_interface"
-	"math/big"
-	"time"
 )
 
 const DefaultHeightDifference uint64 = 10
@@ -51,10 +52,10 @@ func (gen *Generator) GenerateWithMessage(message *IncomingMessage, signFunc Sig
 
 	switch message.BlockType {
 	case ledger.BlockTypeReceiveError:
-		return nil, errors.New("block type can't be BlockTypeReceiveError")
+		return nil, errors.New("block type error")
 	case ledger.BlockTypeReceive:
 		if message.FromBlockHash == nil {
-			return nil, errors.New("FromBlockHash can't be nil when create ReceiveBlock")
+			return nil, errors.New("fromblockhash can't be nil when create receive block")
 		}
 		sendBlock := gen.vmContext.GetAccountBlockByHash(message.FromBlockHash)
 		//genResult, errGenMsg = gen.GenerateWithOnroad(*sendBlock, nil, signFunc, message.Difficulty)
@@ -103,27 +104,32 @@ func (gen *Generator) GenerateWithBlock(block *ledger.AccountBlock, signFunc Sig
 	return genResult, nil
 }
 
-func (gen *Generator) generateBlock(block *ledger.AccountBlock, sendBlock *ledger.AccountBlock, producer types.Address, signFunc SignFunc) (*GenResult, error) {
+func (gen *Generator) generateBlock(block *ledger.AccountBlock, sendBlock *ledger.AccountBlock, producer types.Address, signFunc SignFunc) (result *GenResult, resultErr error) {
 	gen.log.Info("generateBlock", "BlockType", block.BlockType)
+	defer func() {
+		if err := recover(); err != nil {
+			gen.log.Error("generator_vm panic error", "error", err)
+			result = &GenResult{}
+			resultErr = errors.New("generator_vm panic error")
+		}
+	}()
 
 	blockList, isRetry, err := gen.vm.Run(gen.vmContext, block, sendBlock)
-
 	if len(blockList) > 0 {
 		for k, v := range blockList {
-			v.AccountBlock.Hash = v.AccountBlock.ComputeHash()
-
 			if k == 0 {
-				accountBlock := blockList[0].AccountBlock
+				v.AccountBlock.Hash = v.AccountBlock.ComputeHash()
 				if signFunc != nil {
-					signature, publicKey, e := signFunc(producer, accountBlock.Hash.Bytes())
+					signature, publicKey, e := signFunc(producer, v.AccountBlock.Hash.Bytes())
 					if e != nil {
 						return nil, e
 					}
-					accountBlock.Signature = signature
-					accountBlock.PublicKey = publicKey
+					v.AccountBlock.Signature = signature
+					v.AccountBlock.PublicKey = publicKey
 				}
 			} else {
 				v.AccountBlock.PrevHash = blockList[k-1].AccountBlock.Hash
+				v.AccountBlock.Hash = v.AccountBlock.ComputeHash()
 			}
 		}
 	}
@@ -138,7 +144,7 @@ func (gen *Generator) generateBlock(block *ledger.AccountBlock, sendBlock *ledge
 func (gen *Generator) packSendBlockWithMessage(message *IncomingMessage) (blockPacked *ledger.AccountBlock, err error) {
 	latestBlock := gen.vmContext.PrevAccountBlock()
 	if latestBlock == nil {
-		return nil, errors.New("SendTx's AccountAddress doesn't exist")
+		return nil, errors.New("account address doesn't exist")
 	}
 
 	blockPacked, err = message.ToSendBlock()
@@ -156,7 +162,10 @@ func (gen *Generator) packSendBlockWithMessage(message *IncomingMessage) (blockP
 
 	if message.Difficulty != nil {
 		// currently, default mode of GenerateWithOnroad is to calc pow
-		nonce := pow.GetPowNonce(message.Difficulty, types.DataHash(append(blockPacked.AccountAddress.Bytes(), blockPacked.PrevHash.Bytes()...)))
+		nonce, err := pow.GetPowNonce(message.Difficulty, types.DataHash(append(blockPacked.AccountAddress.Bytes(), blockPacked.PrevHash.Bytes()...)))
+		if err != nil {
+			return nil, err
+		}
 		blockPacked.Nonce = nonce[:]
 		blockPacked.Difficulty = message.Difficulty
 	}
@@ -210,12 +219,15 @@ func (gen *Generator) packBlockWithSendBlock(sendBlock *ledger.AccountBlock, con
 
 		snapshotBlock := gen.vmContext.CurrentSnapshotBlock()
 		if snapshotBlock == nil {
-			return nil, errors.New("CurrentSnapshotBlock can't be nil")
+			return nil, errors.New("current snapshotblock can't be nil")
 		}
 		if snapshotBlock.Height > preBlockReferredSbHeight && difficulty != nil {
 			// currently, default mode of GenerateWithOnroad is to calc pow
 			//difficulty = pow.defaultDifficulty
-			nonce := pow.GetPowNonce(difficulty, types.DataHash(append(blockPacked.AccountAddress.Bytes(), blockPacked.PrevHash.Bytes()...)))
+			nonce, err := pow.GetPowNonce(difficulty, types.DataHash(append(blockPacked.AccountAddress.Bytes(), blockPacked.PrevHash.Bytes()...)))
+			if err != nil {
+				return nil, err
+			}
 			blockPacked.Nonce = nonce[:]
 			blockPacked.Difficulty = difficulty
 		}
@@ -240,7 +252,7 @@ func GetFitestGeneratorSnapshotHash(chain vm_context.Chain, referredSnapshotBloc
 	if referredSnapshotBlock != nil {
 		referredSbHeight = referredSnapshotBlock.Height
 		if referredSbHeight >= latestSb.Height {
-			return nil, errors.New("the snapshotHash referred isn't lower than the latest")
+			return nil, errors.New("the snapshotHeight referred can't be lower than the latest")
 		}
 	}
 
@@ -253,6 +265,7 @@ func GetFitestGeneratorSnapshotHash(chain vm_context.Chain, referredSnapshotBloc
 			fitestSbHeight = referredSbHeight + 1
 		}
 	}
+
 	fitestSb, err := chain.GetSnapshotBlockByHeight(fitestSbHeight)
 	if fitestSb == nil {
 		if err != nil {

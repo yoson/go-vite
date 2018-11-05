@@ -1,10 +1,11 @@
 package api
 
 import (
+	"errors"
+	"github.com/vitelabs/go-vite/chain"
 	"github.com/vitelabs/go-vite/chain/sender"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/ledger"
-	"github.com/vitelabs/go-vite/pow"
 	"github.com/vitelabs/go-vite/vm/contracts"
 	"math/big"
 	"strconv"
@@ -55,8 +56,9 @@ func (ab *AccountBlock) LedgerAccountBlock() (*ledger.AccountBlock, error) {
 	}
 
 	if ab.Nonce != nil {
+
 		if ab.Difficulty == nil {
-			lAb.Difficulty = pow.DefaultDifficulty
+			return nil, errors.New("lack of difficulty field")
 		} else {
 			setString, ok := new(big.Int).SetString(*ab.Difficulty, 10)
 			if !ok {
@@ -64,6 +66,7 @@ func (ab *AccountBlock) LedgerAccountBlock() (*ledger.AccountBlock, error) {
 			}
 			lAb.Difficulty = setString
 		}
+
 	}
 
 	t := time.Unix(ab.Timestamp, 0)
@@ -186,4 +189,36 @@ func createKafkaProducerInfo(producer *sender.Producer) *KafkaProducerInfo {
 	}
 
 	return producerInfo
+}
+
+func ledgerToRpcBlock(block *ledger.AccountBlock, chain chain.Chain) (*AccountBlock, error) {
+	confirmTimes, err := chain.GetConfirmTimes(&block.Hash)
+
+	if err != nil {
+		return nil, err
+	}
+
+	var fromAddress, toAddress types.Address
+	if block.IsReceiveBlock() {
+		toAddress = block.AccountAddress
+		sendBlock, err := chain.GetAccountBlockByHash(&block.FromBlockHash)
+		if err != nil {
+			return nil, err
+		}
+
+		if sendBlock != nil {
+			fromAddress = sendBlock.AccountAddress
+			block.TokenId = sendBlock.TokenId
+			block.Amount = sendBlock.Amount
+		}
+	} else {
+		fromAddress = block.AccountAddress
+		toAddress = block.ToAddress
+	}
+
+	token, _ := chain.GetTokenInfoById(&block.TokenId)
+	rpcAccountBlock := createAccountBlock(block, token, confirmTimes)
+	rpcAccountBlock.FromAddress = fromAddress
+	rpcAccountBlock.ToAddress = toAddress
+	return rpcAccountBlock, nil
 }

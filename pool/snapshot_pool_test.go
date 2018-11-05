@@ -20,6 +20,10 @@ type mockCommonBlock struct {
 	prevHash types.Hash
 }
 
+func (self *mockCommonBlock) Source() types.BlockSource {
+	panic("implement me")
+}
+
 func newMockCommonBlock(s int, i uint64) *mockCommonBlock {
 	r := &mockCommonBlock{}
 	r.height = i
@@ -60,6 +64,10 @@ type mockSnapshotI interface {
 }
 
 type mockSnapshotS struct {
+}
+
+func (*mockSnapshotS) FetchAccountBlocksWithHeight(start types.Hash, count uint64, address *types.Address, sHeight uint64) {
+	panic("implement me")
 }
 
 func (*mockSnapshotS) insertBlock(block commonBlock) error {
@@ -199,4 +207,32 @@ func TestNewSnapshotPool(t *testing.T) {
 	p.init(&tools{rw: mock}, po)
 	p.Start()
 	time.Sleep(8 * time.Second)
+}
+
+func TestSelect(t *testing.T) {
+	nextCompactTime := time.Now()
+	nextInsertTime := time.Now()
+	for {
+		select {
+		default:
+			now := time.Now()
+			if now.After(nextCompactTime) {
+				nextCompactTime = now.Add(50 * time.Millisecond)
+				println("nextCompactTime", now.String())
+			}
+
+			if now.After(nextInsertTime) {
+				nextInsertTime = now.Add(200 * time.Millisecond)
+				println("insertTime", now.String())
+			}
+			n2 := time.Now()
+			s1 := nextCompactTime.Sub(n2)
+			s2 := nextInsertTime.Sub(n2)
+			if s1 > s2 {
+				time.Sleep(s2)
+			} else {
+				time.Sleep(s1)
+			}
+		}
+	}
 }

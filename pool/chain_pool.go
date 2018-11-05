@@ -104,11 +104,15 @@ func (self *chainPool) currentModifyToChain(chain *forkedChain) error {
 	for chain.referChain.id() != self.diskChain.id() {
 		fromChain := chain.referChain.(*forkedChain)
 		if fromChain.size() == 0 {
+			r := clearChainBase(chain)
+			if len(r) > 0 {
+				self.log.Info("currentModifyToChain[3]-clearChainBase", "chainId", chain.id(), "start", r[0].Height(), "end", r[len(r)-1].Height())
+			}
 			self.log.Error("modify refer[6]", "from", fromChain.id(), "to", chain.id(),
 				"fromTailHeight", fromChain.tailHeight, "fromHeadHeight", fromChain.headHeight,
 				"toTailHeight", chain.tailHeight, "toHeadHeight", chain.headHeight)
 			chain.referChain = fromChain.referChain
-			self.modifyChainRefer2(fromChain, chain)
+			self.modifyChainRefer2(fromChain, chain, chain)
 			self.delChain(fromChain.id())
 			continue
 		}
@@ -143,7 +147,7 @@ func (self *chainPool) modifyRefer(from *forkedChain, to *forkedChain) error {
 	toTailHeight := to.tailHeight
 	fromTailHeight := from.tailHeight
 	fromHeadHeight := from.headHeight
-	if fromTailHeight <= toTailHeight && fromHeadHeight > toTailHeight {
+	if fromTailHeight <= toTailHeight && fromHeadHeight >= toTailHeight {
 		for i := toTailHeight; i > fromTailHeight; i-- {
 			w := from.getBlock(i, false)
 			if w != nil {
@@ -160,19 +164,18 @@ func (self *chainPool) modifyRefer(from *forkedChain, to *forkedChain) error {
 		to.referChain = from.referChain
 		from.referChain = to
 
-		e := self.modifyChainRefer2(from, to)
+		e := self.modifyChainRefer2(from, to, to)
 		self.log.Info("modify refer", "from", from.id(), "to", to.id(),
 			"fromTailHeight", fromTailHeight, "fromHeadHeight", fromHeadHeight,
 			"toTailHeight", toTailHeight, "toHeadHeight", to.headHeight, "err", e)
 		return nil
 	} else {
-		return errors.Errorf("err for modifyRefer.", "from", from.id(), "to", to.id(),
-			"fromTailHeight", fromTailHeight, "fromHeadHeight", fromHeadHeight,
-			"toTailHeight", toTailHeight, "toHeadHeight", to.headHeight)
+		return errors.Errorf("err for modifyRefer.from:%s, to:%s, fromTailHeight:%d, fromHeadHeight:%d, toTailHeight:%d, toHeadHeight:%d",
+			from.id(), to.id(), fromTailHeight, fromHeadHeight, toTailHeight, to.headHeight)
 
 	}
 }
-func (self *chainPool) modifyChainRefer2(from *forkedChain, to *forkedChain) error {
+func (self *chainPool) modifyChainRefer2(from *forkedChain, to *forkedChain, diskInstead *forkedChain) error {
 	toTailHeight := to.tailHeight
 	fromTailHeight := from.tailHeight
 	fromHeadHeight := from.headHeight
@@ -189,7 +192,7 @@ func (self *chainPool) modifyChainRefer2(from *forkedChain, to *forkedChain) err
 						"toTailHeight", toTailHeight, "toHeadHeight", to.headHeight,
 						"v", v.id(),
 						"vTailHeight", v.tailHeight, "vTailHash", v.tailHash)
-					v.referChain = to
+					v.referChain = diskInstead
 				} else {
 					self.log.Info("modify refer[8]", "from", from.id(), "to", to.id(),
 						"fromTailHeight", fromTailHeight, "fromHeadHeight", fromHeadHeight,
@@ -270,13 +273,15 @@ func (self *chainPool) currentModify(initBlock commonBlock) {
 	c := self.current
 	c.referChain = new
 	self.current = new
-	self.modifyChainRefer2(c, new)
+	self.modifyChainRefer2(c, new, new)
 }
-func (self *chainPool) fork2(snippet *snippetChain, chains []*forkedChain) (bool, bool, *forkedChain) {
+func (self *chainPool) fork2(snippet *snippetChain, chains []*forkedChain) (bool, bool, *forkedChain, error) {
 
 	var forky, insertable bool
 	var result *forkedChain = nil
 	var hr heightChainReader
+
+	var err error
 
 	trace := ""
 
@@ -317,6 +322,7 @@ LOOP:
 					trace += "[3]"
 					break LOOP
 				}
+				break
 			} else {
 				reader = r2
 				block = b2
@@ -325,6 +331,14 @@ LOOP:
 					delete(self.snippetChains, snippet.id())
 					hr = nil
 					trace += "[4]"
+					err = errors.Errorf("snippet rem nil. size:%d", snippet.size())
+					break LOOP
+				}
+				if snippet.size() == 0 {
+					delete(self.snippetChains, snippet.id())
+					hr = nil
+					trace += "[5]"
+					err = errors.New("snippet is empty.")
 					break LOOP
 				}
 				tH = tail.Height()
@@ -333,8 +347,12 @@ LOOP:
 		}
 	}
 
+	if err != nil {
+		return false, false, nil, err
+	}
+
 	if hr == nil {
-		return false, false, nil
+		return false, false, nil, nil
 	}
 	switch t := hr.(type) {
 	case *diskChain:
@@ -363,10 +381,11 @@ LOOP:
 				"sTailHeight", snippet.tailHeight, "sHeadHeight",
 				snippet.headHeight, "cTailHeight", result.tailHeight, "cHeadHeight", result.headHeight,
 				"trace", trace)
+			return forky, false, result, nil
 		}
 	}
 
-	return forky, insertable, result
+	return forky, insertable, result, nil
 }
 
 func (self *chainPool) forky(snippet *snippetChain, chains []*forkedChain) (bool, bool, *forkedChain) {

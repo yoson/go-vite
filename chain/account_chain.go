@@ -4,10 +4,8 @@ import (
 	"errors"
 	"math/big"
 
-	"encoding/json"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/vitelabs/go-vite/common/types"
-	"github.com/vitelabs/go-vite/crypto/ed25519"
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/monitor"
 	"github.com/vitelabs/go-vite/vm_context"
@@ -19,30 +17,26 @@ type BlockMapQueryParam struct {
 	Forward         bool
 }
 
+func (c *chain) completeBlock(block *ledger.AccountBlock, account *ledger.Account) {
+	block.AccountAddress = account.AccountAddress
+
+	if len(block.PublicKey) <= 0 && len(block.Signature) > 0 {
+		block.PublicKey = account.PublicKey
+	}
+}
+
 func (c *chain) InsertAccountBlocks(vmAccountBlocks []*vm_context.VmAccountBlock) error {
-	monitor.LogEventNum("chain", "insert", len(vmAccountBlocks))
 	batch := new(leveldb.Batch)
+	monitor.LogEventNum("chain", "insert", len(vmAccountBlocks))
 	trieSaveCallback := make([]func(), 0)
 	var account *ledger.Account
 
 	// Write vmContext
-	var publicKey ed25519.PublicKey
 	var addBlockHashList []types.Hash
 	for _, vmAccountBlock := range vmAccountBlocks {
 		accountBlock := vmAccountBlock.AccountBlock
-		// FIXME hack!!!!! tmp
-		tmpBuf, _ := json.Marshal(accountBlock)
-		c.log.Debug(string(tmpBuf), "method", "debugInsertAccountBlock")
 
 		addBlockHashList = append(addBlockHashList, accountBlock.Hash)
-
-		if len(publicKey) > 0 {
-			if len(accountBlock.PublicKey) <= 0 {
-				accountBlock.PublicKey = publicKey
-			}
-		} else {
-			publicKey = accountBlock.PublicKey
-		}
 
 		vmContext := vmAccountBlock.VmContext
 		unsavedCache := vmContext.UnsavedCache()
@@ -158,7 +152,9 @@ func (c *chain) InsertAccountBlocks(vmAccountBlocks []*vm_context.VmAccountBlock
 
 	// Set needSnapshotCache
 	if c.needSnapshotCache != nil {
-		c.needSnapshotCache.Set(&account.AccountAddress, lastVmAccountBlock.AccountBlock)
+		c.needSnapshotCache.Set(map[types.Address]*ledger.AccountBlock{
+			account.AccountAddress: lastVmAccountBlock.AccountBlock,
+		})
 	}
 
 	// Set stateTriePool
@@ -171,6 +167,9 @@ func (c *chain) InsertAccountBlocks(vmAccountBlocks []*vm_context.VmAccountBlock
 
 	// trigger writing success event
 	c.em.triggerInsertAccountBlocksSuccess(vmAccountBlocks)
+
+	// record insert
+	c.blackBlock.InsertAccountBlocks(vmAccountBlocks)
 	return nil
 }
 
@@ -243,11 +242,7 @@ func (c *chain) GetAccountBlocksByHeight(addr types.Address, start, count uint64
 	}
 
 	for _, block := range blockList {
-		block.AccountAddress = account.AccountAddress
-		// Not contract account block
-		if len(block.PublicKey) == 0 {
-			block.PublicKey = account.PublicKey
-		}
+		c.completeBlock(block, account)
 	}
 	return blockList, nil
 }
@@ -286,11 +281,7 @@ func (c *chain) GetLatestAccountBlock(addr *types.Address) (*ledger.AccountBlock
 		return nil, err
 	}
 	if block != nil {
-		block.AccountAddress = account.AccountAddress
-		// Not contract account block
-		if len(block.PublicKey) == 0 {
-			block.PublicKey = account.PublicKey
-		}
+		c.completeBlock(block, account)
 	}
 
 	return block, nil
@@ -391,11 +382,8 @@ func (c *chain) GetAccountBlockByHeight(addr *types.Address, height uint64) (*le
 		return nil, nil
 	}
 
-	block.AccountAddress = account.AccountAddress
-	// Not contract account block
-	if len(block.PublicKey) == 0 {
-		block.PublicKey = account.PublicKey
-	}
+	c.completeBlock(block, account)
+
 	return block, nil
 }
 
@@ -427,11 +415,7 @@ func (c *chain) GetAccountBlockByHash(blockHash *types.Hash) (*ledger.AccountBlo
 		return nil, err
 	}
 
-	block.AccountAddress = account.AccountAddress
-	// Not contract account block
-	if len(block.PublicKey) == 0 {
-		block.PublicKey = account.PublicKey
-	}
+	c.completeBlock(block, account)
 	return block, nil
 }
 
@@ -488,11 +472,7 @@ func (c *chain) GetAccountBlocksByAddress(addr *types.Address, index, num, count
 
 	// Query block meta list
 	for _, block := range blockList {
-		block.AccountAddress = account.AccountAddress
-		// Not contract account block
-		if len(block.PublicKey) == 0 {
-			block.PublicKey = account.PublicKey
-		}
+		c.completeBlock(block, account)
 		blockMeta, err := c.chainDb.Ac.GetBlockMeta(&block.Hash)
 		if err != nil {
 			c.log.Error("Query block meta list failed. Error is "+err.Error(), "method", "GetAccountBlocksByAddress")
@@ -550,11 +530,7 @@ func (c *chain) GetFirstConfirmedAccountBlockBySbHeight(snapshotBlockHeight uint
 			return nil, unConfirmErr
 		}
 
-		block.AccountAddress = account.AccountAddress
-		// Not contract account block
-		if len(block.PublicKey) == 0 {
-			block.PublicKey = account.PublicKey
-		}
+		c.completeBlock(block, account)
 		return block, nil
 	}
 }
@@ -641,15 +617,6 @@ func (c *chain) DeleteAccountBlocks(addr *types.Address, toHeight uint64) (map[t
 		return nil, writeErr
 	}
 
-	// FIXME hack!!!!! tmp
-	for _, blocks := range subLedger {
-		for _, block := range blocks {
-			tmpBuf, _ := json.Marshal(block)
-			c.log.Debug(string(tmpBuf), "method", "debugDeleteAccountBlock")
-		}
-
-	}
-
 	needAddBlocks, needRemoveAddr, _, err := c.getNeedSnapshotMapByDeleteSubLedger(subLedger)
 	if err != nil {
 		c.log.Error("getNeedSnapshotMapByDeleteSubLedger failed, error is "+err.Error(), "method", "DeleteAccountBlocks", "addr", addr, "toHeight", toHeight)
@@ -657,18 +624,39 @@ func (c *chain) DeleteAccountBlocks(addr *types.Address, toHeight uint64) (map[t
 	}
 
 	// Set needSnapshotCache, first remove
-	for addr := range needRemoveAddr {
-		c.needSnapshotCache.Remove(&addr)
-	}
+	c.needSnapshotCache.Remove(needRemoveAddr)
 
 	// Set needSnapshotCache, then add
-	for addr, block := range needAddBlocks {
-		c.needSnapshotCache.Set(&addr, block)
-	}
+
+	c.needSnapshotCache.Set(needAddBlocks)
 
 	c.em.triggerDeleteAccountBlocksSuccess(subLedger)
 
+	// record delete
+	c.blackBlock.DeleteAccountBlock(subLedger)
+
 	return subLedger, nil
+}
+func (c *chain) GetAllLatestAccountBlock() ([]*ledger.AccountBlock, error) {
+	maxAccountId, err := c.chainDb.Account.GetLastAccountId()
+	if err != nil {
+		c.log.Error("GetLastAccountId failed, error is "+err.Error(), "method", "GetAllAccountBlockCount")
+		return nil, err
+	}
+
+	var allLatestAccountBlock []*ledger.AccountBlock
+
+	for i := uint64(1); i <= maxAccountId; i++ {
+		accountBlock, err := c.chainDb.Ac.GetLatestBlock(i)
+		if err != nil {
+			c.log.Error("GetLatestBlock failed, error is "+err.Error(), "method", "GetAllAccountBlockCount")
+			return nil, err
+		}
+		if accountBlock != nil {
+			allLatestAccountBlock = append(allLatestAccountBlock, accountBlock)
+		}
+	}
+	return allLatestAccountBlock, nil
 }
 
 // For init need snapshot cache
@@ -712,10 +700,7 @@ func (c *chain) subLedgerAccountIdToAccountAddress(subLedger map[uint64][]*ledge
 
 		finalSubLedger[account.AccountAddress] = chain
 		for _, block := range finalSubLedger[account.AccountAddress] {
-			block.AccountAddress = *address
-			if len(block.PublicKey) <= 0 {
-				block.PublicKey = account.PublicKey
-			}
+			c.completeBlock(block, account)
 		}
 	}
 	return finalSubLedger, nil

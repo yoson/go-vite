@@ -3,6 +3,10 @@ package sender
 import (
 	"encoding/binary"
 	"encoding/json"
+	"math/big"
+	"sync"
+	"time"
+
 	"github.com/Shopify/sarama"
 	"github.com/golang/protobuf/proto"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -13,9 +17,6 @@ import (
 	"github.com/vitelabs/go-vite/vitepb"
 	"github.com/vitelabs/go-vite/vm/contracts"
 	"github.com/vitelabs/go-vite/vm_context"
-	"math/big"
-	"sync"
-	"time"
 )
 
 const (
@@ -90,6 +91,7 @@ func NewProducerFromDb(producerId uint8, buf []byte, chain Chain, db *leveldb.DB
 	if err := producer.init(producerId, chain, db); err != nil {
 		return nil, err
 	}
+	producer.log = log15.New("module", "sender/producer")
 	return producer, nil
 }
 
@@ -102,6 +104,7 @@ func NewProducer(producerId uint8, brokerList []string, topic string, chain Chai
 	if err := producer.init(producerId, chain, db); err != nil {
 		return nil, err
 	}
+	producer.log = log15.New("module", "sender/producer")
 	return producer, nil
 }
 
@@ -221,6 +224,7 @@ func (producer *Producer) Start() error {
 	producer.status = RUNNING
 	producer.termination = make(chan int)
 
+	producer.wg.Add(1)
 	common.Go(func() {
 		defer producer.wg.Done()
 		for {
@@ -311,7 +315,8 @@ func (producer *Producer) send() {
 
 		var msgList []*message
 
-		for j := i + 1; j-i <= producer.concurrency && j <= end; j++ {
+		j := i + 1
+		for ; j-i <= producer.concurrency && j <= end; j++ {
 			eventType, blockHashList, err := producer.chain.GetEvent(j)
 			if err != nil {
 				producer.log.Error("Get event failed, error is "+err.Error(), "method", "send")
@@ -489,8 +494,7 @@ func (producer *Producer) send() {
 			return
 		}
 
-		i = i + uint64(len(msgList))
-
+		i = j - 1
 		producer.hasSend = i
 
 	}
@@ -524,8 +528,8 @@ func (producer *Producer) getHasSend() (uint64, error) {
 	return binary.BigEndian.Uint64(value), nil
 }
 
-func (producer *Producer) sendMessage(msgList []*message) error {
-	var err error
+func (producer *Producer) sendMessage(msgList []*message) (err error) {
+	//var err error
 	for i := 0; i < len(msgList); i++ {
 		buf, jsonErr := json.Marshal(msgList[i])
 		if jsonErr != nil {
@@ -551,5 +555,5 @@ func (producer *Producer) sendMessage(msgList []*message) error {
 		}()
 	}
 	producer.sendWg.Wait()
-	return nil
+	return
 }

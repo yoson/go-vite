@@ -30,6 +30,9 @@ func NewNeedSnapshotContent(chain *chain, unconfirmedSubLedger map[types.Address
 }
 
 func (cache *NeedSnapshotCache) GetSnapshotContent() ledger.SnapshotContent {
+	cache.lock.Lock()
+	defer cache.lock.Unlock()
+
 	content := make(ledger.SnapshotContent, 0)
 	for addr, block := range cache.cacheMap {
 		content[addr] = &ledger.HashHeight{
@@ -61,16 +64,20 @@ func (cache *NeedSnapshotCache) Get(addr *types.Address) *ledger.AccountBlock {
 	return cache.cacheMap[*addr]
 }
 
-func (cache *NeedSnapshotCache) Set(addr *types.Address, accountBlock *ledger.AccountBlock) {
+func (cache *NeedSnapshotCache) Set(subLedger map[types.Address]*ledger.AccountBlock) {
 	cache.lock.Lock()
 	defer cache.lock.Unlock()
-	if cachedItem := cache.cacheMap[*addr]; cachedItem != nil && cachedItem.Height >= accountBlock.Height {
-		cache.unsavePrintCacheMap()
-		cache.log.Crit("cachedItem.Height > accountBlock.Height", "method", "Set")
-		return
+	for addr, accountBlock := range subLedger {
+		if cachedItem := cache.cacheMap[addr]; cachedItem != nil && cachedItem.Height >= accountBlock.Height {
+			cache.unsavePrintCacheMap()
+			cache.printCorrectCacheMap()
+			cache.log.Crit("cachedItem.Height > accountBlock.Height", "method", "Set")
+			return
+		}
+
+		cache.cacheMap[addr] = accountBlock
 	}
 
-	cache.cacheMap[*addr] = accountBlock
 }
 
 func (cache *NeedSnapshotCache) unsavePrintCacheMap() {
@@ -79,29 +86,63 @@ func (cache *NeedSnapshotCache) unsavePrintCacheMap() {
 	}
 }
 
-func (cache *NeedSnapshotCache) BeSnapshot(addr *types.Address, height uint64) {
+func (cache *NeedSnapshotCache) printCorrectCacheMap() {
+	unconfirmedSubLedger, getSubLedgerErr := cache.chain.getUnConfirmedSubLedger()
+	if getSubLedgerErr != nil {
+		cache.log.Crit("getUnConfirmedSubLedger failed, error is "+getSubLedgerErr.Error(), "method", "printCorrectCacheMap")
+	}
+
+	correctSnapshotCache := NewNeedSnapshotContent(cache.chain, unconfirmedSubLedger)
+	cache.log.Error("The correct needSnapshotContent is ...")
+	correctSnapshotCache.unsavePrintCacheMap()
+}
+
+func (cache *NeedSnapshotCache) BeSnapshot(subLedger ledger.SnapshotContent) {
 	cache.lock.Lock()
 	defer cache.lock.Unlock()
 
-	cachedItem := cache.cacheMap[*addr]
-	if cachedItem == nil {
-		cache.unsavePrintCacheMap()
-		cache.log.Crit("cacheItem is nil", "method", "BeSnapshot")
+	for addr, hashHeight := range subLedger {
+		cachedItem := cache.cacheMap[addr]
+		if cachedItem == nil {
+			cache.unsavePrintCacheMap()
+			cache.printCorrectCacheMap()
+			cache.log.Crit("cacheItem is nil", "method", "BeSnapshot")
+		}
+
+		if cachedItem.Height < hashHeight.Height {
+			cache.unsavePrintCacheMap()
+			cache.printCorrectCacheMap()
+			cache.log.Crit("cacheItem.Height < height", "method", "BeSnapshot")
+		}
+
+		if cachedItem.Height == hashHeight.Height {
+			delete(cache.cacheMap, addr)
+		}
 	}
 
-	if cachedItem.Height < height {
-		cache.unsavePrintCacheMap()
-		cache.log.Crit("cacheItem.Height < height", "method", "BeSnapshot")
+}
+
+func (cache *NeedSnapshotCache) Rebuild() {
+	cache.lock.Lock()
+	defer cache.lock.Unlock()
+
+	unconfirmedSubLedger, getSubLedgerErr := cache.chain.getUnConfirmedSubLedger()
+	if getSubLedgerErr != nil {
+		cache.log.Crit("getUnConfirmedSubLedger failed, error is "+getSubLedgerErr.Error(), "method", "printCorrectCacheMap")
 	}
 
-	if cachedItem.Height == height {
-		delete(cache.cacheMap, *addr)
+	cache.cacheMap = make(map[types.Address]*ledger.AccountBlock)
+
+	for addr, blocks := range unconfirmedSubLedger {
+		cache.cacheMap[addr] = blocks[0]
 	}
 }
 
-func (cache *NeedSnapshotCache) Remove(addr *types.Address) {
+func (cache *NeedSnapshotCache) Remove(addrList []types.Address) {
 	cache.lock.Lock()
 	defer cache.lock.Unlock()
 
-	delete(cache.cacheMap, *addr)
+	for _, addr := range addrList {
+		delete(cache.cacheMap, addr)
+	}
 }

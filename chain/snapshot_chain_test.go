@@ -87,6 +87,10 @@ func TestGetSnapshotBlockByHeight(t *testing.T) {
 
 	fmt.Printf("%+v\n", block)
 
+	for addr, hashHeight := range block.SnapshotContent {
+		fmt.Printf("%s: %d %s\n", addr, hashHeight.Height, hashHeight.Hash.String())
+	}
+
 	block2, err2 := chainInstance.GetSnapshotBlockByHeight(2)
 	if err2 != nil {
 		t.Fatal(err2)
@@ -404,6 +408,29 @@ func newSnapshotBlock() (*ledger.SnapshotBlock, error) {
 	snapshotBlock.Hash = snapshotBlock.ComputeHash()
 
 	return snapshotBlock, err
+}
+
+func TestDeleteSnapshotBlocksToHeight5(t *testing.T) {
+	chainInstance := getChainInstance()
+
+	for {
+		latestBlock := chainInstance.GetLatestSnapshotBlock()
+		sbs, subLedger, _ := chainInstance.DeleteSnapshotBlocksToHeight(latestBlock.Height)
+		for _, sb := range sbs {
+			fmt.Printf("%+v\n", sb)
+		}
+
+		for addr, blocks := range subLedger {
+			fmt.Printf("%s\n", addr)
+			for _, block := range blocks {
+				fmt.Printf("%+v\n", block)
+			}
+		}
+		if len(subLedger) > 0 {
+			break
+		}
+	}
+
 }
 func TestDeleteSnapshotBlocksToHeight4(t *testing.T) {
 	log15.Root().SetHandler(

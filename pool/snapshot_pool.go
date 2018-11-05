@@ -19,12 +19,15 @@ type snapshotPool struct {
 	BCPool
 	//rwMu *sync.RWMutex
 	//consensus consensus.AccountsConsensus
-	closed chan struct{}
-	wg     sync.WaitGroup
-	pool   *pool
-	rw     *snapshotCh
-	v      *snapshotVerifier
-	f      *snapshotSyncer
+	closed          chan struct{}
+	wg              sync.WaitGroup
+	pool            *pool
+	rw              *snapshotCh
+	v               *snapshotVerifier
+	f               *snapshotSyncer
+	nextFetchTime   time.Time
+	nextInsertTime  time.Time
+	nextCompactTime time.Time
 }
 
 func newSnapshotPoolBlock(block *ledger.SnapshotBlock, version *ForkVersion, source types.BlockSource) *snapshotPoolBlock {
@@ -34,6 +37,10 @@ func newSnapshotPoolBlock(block *ledger.SnapshotBlock, version *ForkVersion, sou
 type snapshotPoolBlock struct {
 	forkBlock
 	block *ledger.SnapshotBlock
+
+	// last check data time
+	lastCheckTime time.Time
+	checkResult   bool
 }
 
 func (self *snapshotPoolBlock) Height() uint64 {
@@ -67,6 +74,10 @@ func newSnapshotPool(
 	pool.v = v
 	pool.f = f
 	pool.log = log.New("snapshotPool", name)
+	now := time.Now()
+	pool.nextFetchTime = now
+	pool.nextInsertTime = now
+	pool.nextCompactTime = now
 	return pool
 }
 
@@ -89,7 +100,7 @@ func (self *snapshotPool) loopCheckFork() {
 			case string:
 				e = errors.New(t)
 			default:
-				e = errors.Errorf("unknown type", err)
+				e = errors.Errorf("unknown type, %+v", err)
 			}
 
 			self.log.Error("loopCheckFork start recover", "err", err, "withstack", fmt.Sprintf("%+v", e))
@@ -122,11 +133,40 @@ func (self *snapshotPool) loopCheckFork() {
 }
 
 func (self *snapshotPool) checkFork() {
-	longest := self.LongestChain()
 	current := self.CurrentChain()
+	minHeight := self.pool.realSnapshotHeight(current)
+
+	self.log.Debug("current chain.", "id", current.id(), "realH", minHeight, "headH", current.headHeight)
+
+	longers := self.LongerChain(minHeight)
+
+	var longest *forkedChain
+	longestH := minHeight
+	for _, l := range longers {
+		if l.headHeight < longestH {
+			continue
+		}
+		lH := self.pool.realSnapshotHeight(l)
+		self.log.Debug("find chain.", "id", l.id(), "realH", lH, "headH", l.headHeight)
+		if lH > longestH {
+			longestH = lH
+			longest = l
+			self.log.Info("find more longer chain.", "id", l.id(), "realH", lH, "headH", l.headHeight, "tailH", l.tailHeight)
+		}
+	}
+
+	if longest == nil {
+		return
+	}
+
 	if longest.ChainId() == current.ChainId() {
 		return
 	}
+	if longestH-self.LIMIT_LONGEST_NUM < current.headHeight {
+		return
+	}
+	self.log.Info("current chain.", "id", current.id(), "realH", minHeight, "headH", current.headHeight, "tailH", current.tailHeight)
+
 	monitor.LogEvent("pool", "snapshotFork")
 	err := self.snapshotFork(longest, current)
 	if err != nil {
@@ -142,7 +182,7 @@ func (self *snapshotPool) snapshotFork(longest *forkedChain, current *forkedChai
 	defer self.pool.UnLock()
 	self.log.Warn("[lock]snapshot chain start fork.", "longest", longest.ChainId(), "current", current.ChainId())
 
-	k, forked, err := self.getForkPoint(longest, current)
+	k, forked, err := self.getForkPointByChains(longest, current)
 	if err != nil {
 		self.log.Error("get snapshot forkPoint err.", "err", err)
 		return err
@@ -193,7 +233,7 @@ func (self *snapshotPool) loop() {
 			case string:
 				e = errors.New(t)
 			default:
-				e = errors.Errorf("unknown type", err)
+				e = errors.Errorf("unknown type, %+v", err)
 			}
 
 			self.log.Error("snapshot loop start recover", "err", err, "withstack", fmt.Sprintf("%+v", e))
@@ -218,12 +258,42 @@ func (self *snapshotPool) loop() {
 		case <-self.closed:
 			return
 		default:
-			self.loopGenSnippetChains()
-			self.loopAppendChains()
-			self.loopFetchForSnippets()
-			self.loopCheckCurrentInsert()
-			time.Sleep(200 * time.Millisecond)
+			now := time.Now()
+			if now.After(self.nextCompactTime) {
+				self.nextCompactTime = now.Add(50 * time.Millisecond)
+				self.loopCompactSnapshot()
+			}
+
+			if now.After(self.nextInsertTime) {
+				self.nextInsertTime = now.Add(200 * time.Millisecond)
+				self.loopCheckCurrentInsert()
+			}
+			n2 := time.Now()
+			s1 := self.nextCompactTime.Sub(n2)
+			s2 := self.nextInsertTime.Sub(n2)
+			if s1 > s2 {
+				time.Sleep(s2)
+			} else {
+				time.Sleep(s1)
+			}
 		}
+	}
+}
+
+func (self *snapshotPool) loopCompactSnapshot() {
+	defer monitor.LogTime("pool", "loopCompactSnapshotRLock", time.Now())
+	self.pool.RLock()
+	defer self.pool.RUnLock()
+	defer monitor.LogTime("pool", "loopCompactSnapshotMuLock", time.Now())
+	self.rMu.Lock()
+	defer self.rMu.Unlock()
+	self.loopGenSnippetChains()
+	self.loopAppendChains()
+	now := time.Now()
+	if now.After(self.nextFetchTime) {
+		self.nextFetchTime = now.Add(time.Millisecond * 200)
+		self.loopFetchForSnippets()
+		self.loopFetchForSnapshot()
 	}
 }
 
@@ -243,8 +313,10 @@ func (self *snapshotPool) loopCheckCurrentInsert() {
 }
 
 func (self *snapshotPool) snapshotTryInsert() (*poolSnapshotVerifyStat, commonBlock) {
+	defer monitor.LogTime("pool", "snapshotTryInsert", time.Now())
 	self.pool.RLock()
 	defer self.pool.RUnLock()
+	defer monitor.LogTime("pool", "snapshotTryInsertRMu", time.Now())
 	self.rMu.Lock()
 	defer self.rMu.Unlock()
 
@@ -390,4 +462,15 @@ func (self *snapshotPool) AddDirectBlock(block *snapshotPoolBlock) error {
 		self.log.Crit("verify unexpected.")
 		return errors.New("verify unexpected")
 	}
+}
+func (self *snapshotPool) loopFetchForSnapshot() {
+	defer monitor.LogTime("pool", "loopFetchForSnapshot", time.Now())
+	curHeight := self.pool.realSnapshotHeight(self.CurrentChain())
+	longers := self.LongerChain(curHeight)
+
+	self.pool.fetchForSnapshot(self.CurrentChain())
+	for _, v := range longers {
+		self.pool.fetchForSnapshot(v)
+	}
+	return
 }

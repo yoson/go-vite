@@ -9,7 +9,7 @@ import (
 	"github.com/vitelabs/go-vite/config"
 	"github.com/vitelabs/go-vite/crypto/ed25519"
 	"github.com/vitelabs/go-vite/ledger"
-	"github.com/vitelabs/go-vite/pow"
+	"github.com/vitelabs/go-vite/log15"
 	"github.com/vitelabs/go-vite/vm"
 	"github.com/vitelabs/go-vite/vm/contracts"
 	"math/big"
@@ -27,6 +27,8 @@ var (
 
 	attovPerVite = big.NewInt(1e18)
 	pledgeAmount = new(big.Int).Mul(big.NewInt(10), attovPerVite)
+	// difficulty test:65535~67108863
+	defaultDifficulty = big.NewInt(65535)
 )
 
 func init() {
@@ -79,7 +81,7 @@ func TestGenerator_GenerateWithOnroad(t *testing.T) {
 	genResult, err := gen.GenerateWithOnroad(*fromBlock, nil,
 		func(addr types.Address, data []byte) (signedData, pubkey []byte, err error) {
 			return ed25519.Sign(genesisAccountPrivKey, data), genesisAccountPubKey, nil
-		}, nil)
+		}, defaultDifficulty)
 	if err != nil {
 		t.Error("GenerateWithOnroad", err)
 		return
@@ -160,11 +162,11 @@ func TestGenerator_GenerateWithMessage_CallTransfer(t *testing.T) {
 	genesisAccountPrivKey, _ := ed25519.HexToPrivateKey(genesisAccountPrivKeyStr)
 	genesisAccountPubKey := genesisAccountPrivKey.PubByte()
 
-	if err := callTransfer(v, &ledger.GenesisAccountAddress, &addr1, genesisAccountPrivKey, genesisAccountPubKey, pow.DefaultDifficulty); err != nil {
+	if err := callTransfer(v, &ledger.GenesisAccountAddress, &addr1, genesisAccountPrivKey, genesisAccountPubKey, defaultDifficulty); err != nil {
 		t.Error(err)
 		return
 	}
-	if err := callTransfer(v, &addr1, &addr2, addr1PrivKey, addr1PubKey, pow.DefaultDifficulty); err != nil {
+	if err := callTransfer(v, &addr1, &addr2, addr1PrivKey, addr1PubKey, defaultDifficulty); err != nil {
 		t.Error(err)
 		return
 	}
@@ -201,4 +203,11 @@ func callTransfer(vite *VitePrepared, fromAddr, toAddr *types.Address, fromAddrP
 	//fmt.Printf("genResult.BlockGenList:%v\n", genResult.BlockGenList)
 	fmt.Printf("blocks[0] balance:%+v,tokenId:%+v\n", genResult.BlockGenList[0].VmContext.GetBalance(&ledger.GenesisAccountAddress, &ledger.ViteTokenId), err)
 	return nil
+}
+
+func TestGenerator(t *testing.T) {
+	//gen, _ := NewGenerator(nil,nil, nil, nil)
+	gen := &Generator{log: log15.New()}
+	block, err := gen.generateBlock(&ledger.AccountBlock{}, &ledger.AccountBlock{}, types.Address{}, nil)
+	t.Error(err, block)
 }

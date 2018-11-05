@@ -332,9 +332,9 @@ func (self *BCPool) init(tools *tools) {
 	self.tools = tools
 	self.compactLock = &common.NonBlockLock{}
 
-	self.LIMIT_HEIGHT = 60 * 60
-	self.LIMIT_LONGEST_NUM = 1
-	self.rstat = (&recoverStat{}).reset(10, 10*time.Second)
+	self.LIMIT_HEIGHT = 75 * 2
+	self.LIMIT_LONGEST_NUM = 3
+	self.rstat = (&recoverStat{}).init(10, 10*time.Second)
 	self.initPool()
 }
 
@@ -450,10 +450,18 @@ func (self *BCPool) rollbackCurrent(blocks []commonBlock) error {
 	smallest := blocks[0]
 	longest := blocks[h]
 	if head.Height()+1 != smallest.Height() || head.Hash() != smallest.PrevHash() {
+		for _, v := range blocks {
+			self.log.Info("block delete", "height", v.Height(), "hash", v.Hash(), "prevHash", v.PrevHash())
+		}
+		self.log.Crit("error for db fail.", "headHeight", head.Height(), "headHash", head.Hash(), "smallestHeight", smallest.Height(), "err", errors.New(self.Id+" disk chain height hash check fail"))
 		return errors.New(self.Id + " disk chain height hash check fail")
 	}
 
 	if cur.tailHeight != longest.Height() || cur.tailHash != longest.Hash() {
+		for _, v := range blocks {
+			self.log.Info("block delete", "height", v.Height(), "hash", v.Hash(), "prevHash", v.PrevHash())
+		}
+		self.log.Crit("error for db fail.", "tailHeight", cur.tailHeight, "tailHash", cur.tailHash, "longestHeight", longest.Height(), "err", errors.New(self.Id+" current chain height hash check fail"))
 		return errors.New(self.Id + " current chain height hash check fail")
 	}
 	for i := h; i >= 0; i-- {
@@ -720,10 +728,6 @@ func (self *BCPool) loopGenSnippetChains() int {
 }
 
 func (self *BCPool) loopAppendChains() int {
-	err := self.chainpool.check()
-	if err != nil {
-		self.log.Error("loopAppendChains check chain err", "err", err)
-	}
 	if len(self.chainpool.snippetChains) == 0 {
 		return 0
 	}
@@ -734,7 +738,11 @@ func (self *BCPool) loopAppendChains() int {
 	tmpChains := self.chainpool.allChain()
 
 	for _, w := range sortSnippets {
-		forky, insertable, c := self.chainpool.fork2(w, tmpChains)
+		forky, insertable, c, err := self.chainpool.fork2(w, tmpChains)
+		if err != nil {
+			self.delSnippet(w)
+			continue
+		}
 		if forky {
 			i++
 			newChain, err := self.chainpool.forkChain(c, w)
@@ -858,6 +866,21 @@ func (self *BCPool) LongestChain() *forkedChain {
 		return current
 	}
 }
+func (self *BCPool) LongerChain(minHeight uint64) []*forkedChain {
+	var result []*forkedChain
+	readers := self.chainpool.allChain()
+	current := self.chainpool.current
+	for _, reader := range readers {
+		if current.id() == reader.id() {
+			continue
+		}
+		height := reader.headHeight
+		if height > minHeight {
+			result = append(result, reader)
+		}
+	}
+	return result
+}
 func (self *BCPool) CurrentChain() *forkedChain {
 	return self.chainpool.current
 }
@@ -919,13 +942,47 @@ func (self *BCPool) loopDelUselessChain() {
 	} else {
 		defer self.compactLock.UnLock()
 	}
+	self.rMu.Lock()
+	defer self.rMu.Unlock()
 
+	dels := make(map[string]*forkedChain)
 	height := self.chainpool.current.tailHeight
 	for _, c := range self.chainpool.allChain() {
 		if c.headHeight+self.LIMIT_HEIGHT < height {
-			self.delChain(c)
+			dels[c.id()] = c
 		}
 	}
+	for {
+		i := 0
+		for _, c := range self.chainpool.allChain() {
+			_, ok := dels[c.id()]
+			if ok {
+				continue
+			}
+			r := c.refer()
+			if r == nil {
+				i++
+				dels[c.id()] = c
+			} else {
+				_, ok := dels[r.id()]
+				if ok {
+					i++
+					dels[c.id()] = c
+				}
+			}
+		}
+		if i == 0 {
+			break
+		} else {
+			i = 0
+		}
+	}
+
+	for _, v := range dels {
+		self.log.Info("del useless chain", "id", v.id(), "headHeight", v.headHeight, "tailHeight", v.tailHeight)
+		self.delChain(v)
+	}
+
 	for _, c := range self.chainpool.snippetChains {
 		if c.headHeight+self.LIMIT_HEIGHT < height {
 			self.delSnippet(c)

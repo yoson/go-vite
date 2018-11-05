@@ -176,7 +176,7 @@ func (self *pool) Init(s syncer,
 		self)
 
 	self.pendingSc = snapshotPool
-	self.stat = (&recoverStat{}).reset(10, time.Second*10)
+	self.stat = (&recoverStat{}).init(10, time.Second*10)
 }
 func (self *pool) Info(addr *types.Address) string {
 	if addr == nil {
@@ -453,9 +453,8 @@ func (self *pool) ForkAccountTo(addr types.Address, h *ledger.HashHeight, sHeigh
 		return err
 	}
 	if keyPoint == nil {
-		return errors.Errorf("forkAccountTo key point is nil, target:%s", targetChain.id(), "current", cu.id(),
-			"targetTailHeight", targetChain.tailHeight, "targetTailHash", targetChain.tailHash,
-			"currentTailHeight", cu.tailHeight, "currentTailHash", cu.tailHash)
+		return errors.Errorf("forkAccountTo key point is nil, target:%s, current:%s, targetTailHeight:%d, targetTailHash:%s, currentTailHeight:%d, currentTailHash:%s",
+			targetChain.id(), cu.id(), targetChain.tailHeight, targetChain.tailHash, cu.tailHeight, cu.tailHash)
 	}
 	// fork point in disk chain
 	if forkPoint.Height() <= this.CurrentChain().tailHeight {
@@ -606,7 +605,7 @@ func (self *pool) poolRecover() {
 		case string:
 			e = errors.New(t)
 		default:
-			e = errors.Errorf("unknown type", err)
+			e = errors.Errorf("unknown type, %+v", err)
 		}
 
 		self.log.Error("panic", "err", err, "withstack", fmt.Sprintf("%+v", e))
@@ -685,8 +684,11 @@ func (self *pool) accountsCompact() int {
 		pendings = append(pendings, p)
 		return true
 	})
-	for _, p := range pendings {
-		sum = sum + p.Compact()
+	if len(pendings) > 0 {
+		monitor.LogEventNum("pool", "AccountsCompact", len(pendings))
+		for _, p := range pendings {
+			sum = sum + p.Compact()
+		}
 	}
 	return sum
 }
@@ -737,6 +739,79 @@ func (self *pool) delTimeoutUnConfirmedBlocks(addr types.Address) {
 	}
 }
 
+func (self *pool) checkBlock(block *snapshotPoolBlock) bool {
+	var result = true
+	for k, v := range block.block.SnapshotContent {
+		ac := self.selfPendingAc(k)
+		fc := ac.findInTreeDisk(v.Hash, v.Height, true)
+		if fc == nil {
+			ac.f.fetchBySnapshot(ledger.HashHeight{Hash: v.Hash, Height: v.Height}, 1, block.Height())
+			result = false
+		}
+	}
+	return result
+}
+
+func (self *pool) realSnapshotHeight(fc *forkedChain) uint64 {
+	h := fc.tailHeight
+	for {
+		b := fc.getHeightBlock(h + 1)
+		if b == nil {
+			return h
+		}
+		block := b.(*snapshotPoolBlock)
+		now := time.Now()
+		if now.After(block.lastCheckTime.Add(time.Second * 5)) {
+			block.lastCheckTime = now
+			block.checkResult = self.checkBlock(block)
+		}
+
+		if !block.checkResult {
+			return h
+		}
+		h = h + 1
+	}
+}
+
+func (self *pool) fetchForSnapshot(fc *forkedChain) error {
+	var reqs []*fetchRequest
+	j := 0
+	for i := fc.tailHeight + 1; i < fc.headHeight && j < 100; i++ {
+		j++
+		b := fc.getHeightBlock(i)
+		if b == nil {
+			continue
+		}
+
+		sb := b.(*snapshotPoolBlock)
+
+		hash := sb.Hash()
+		for k, v := range sb.block.SnapshotContent {
+			reqs = append(reqs, &fetchRequest{
+				snapshot:       false,
+				chain:          &k,
+				hash:           v.Hash,
+				accHeight:      v.Height,
+				prevCnt:        1,
+				snapshotHash:   &hash,
+				snapshotHeight: b.Height(),
+			})
+		}
+	}
+
+	for _, v := range reqs {
+		if v.chain == nil {
+			continue
+		}
+		ac := self.selfPendingAc(*v.chain)
+		fc := ac.findInTreeDisk(v.hash, v.accHeight, true)
+		if fc == nil {
+			ac.f.fetchBySnapshot(ledger.HashHeight{Hash: v.hash, Height: v.accHeight}, 1, v.snapshotHeight)
+		}
+	}
+	return nil
+}
+
 type recoverStat struct {
 	num           int32
 	updateTime    time.Time
@@ -744,11 +819,17 @@ type recoverStat struct {
 	timeThreshold time.Duration
 }
 
-func (self *recoverStat) reset(t int32, d time.Duration) *recoverStat {
+func (self *recoverStat) init(t int32, d time.Duration) *recoverStat {
 	self.num = 0
 	self.updateTime = time.Now()
 	self.threshold = t
 	self.timeThreshold = d
+	return self
+}
+
+func (self *recoverStat) reset() *recoverStat {
+	self.num = 0
+	self.updateTime = time.Now()
 	return self
 }
 

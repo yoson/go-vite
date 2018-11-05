@@ -24,6 +24,9 @@ type Config struct {
 	// template：["broker1,broker2,...|topic",""]
 	KafkaProducers []string `json:"KafkaProducers"`
 
+	// chain
+	OpenBlackBlock bool `json:"OpenBlackBlock"`
+
 	// p2p
 	NetSelect            string
 	Identity             string   `json:"Identity"`
@@ -63,6 +66,8 @@ type Config struct {
 	HttpExposeAll       bool     `json:"HttpExposeAll"`
 	TestTokenHexPrivKey string   `json:"TestTokenHexPrivKey"`
 	TestTokenTti        string   `json:"TestTokenTti"`
+
+	PowServerIp string `json:"PowServerIp”`
 
 	//Log level
 	LogLevel    string `json:"LogLevel"`
@@ -143,6 +148,7 @@ func (c *Config) makeChainConfig() *config.Chain {
 	if len(c.KafkaProducers) == 0 {
 		return &config.Chain{
 			KafkaProducers: nil,
+			OpenBlackBlock: c.OpenBlackBlock,
 		}
 	}
 
@@ -170,6 +176,7 @@ func (c *Config) makeChainConfig() *config.Chain {
 END:
 	return &config.Chain{
 		KafkaProducers: kafkaProducers,
+		OpenBlackBlock: c.OpenBlackBlock,
 	}
 }
 

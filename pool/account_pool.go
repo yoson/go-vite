@@ -6,6 +6,10 @@ import (
 
 	"math/rand"
 
+	"fmt"
+
+	"encoding/base64"
+
 	"github.com/pkg/errors"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/ledger"
@@ -32,14 +36,25 @@ func newAccountPoolBlock(block *ledger.AccountBlock,
 	vmBlock vmctxt_interface.VmDatabase,
 	version *ForkVersion,
 	source types.BlockSource) *accountPoolBlock {
-	return &accountPoolBlock{block: block, vmBlock: vmBlock, forkBlock: *newForkBlock(version, source), recover: (&recoverStat{}).reset(10, time.Hour)}
+	return &accountPoolBlock{
+		forkBlock: *newForkBlock(version, source),
+		block:     block,
+		vmBlock:   vmBlock,
+		recover:   (&recoverStat{}).init(10, time.Hour),
+		failStat:  (&recoverStat{}).init(10, time.Second*30),
+		delStat:   (&recoverStat{}).init(100, time.Minute*10),
+		fail:      false,
+	}
 }
 
 type accountPoolBlock struct {
 	forkBlock
-	block   *ledger.AccountBlock
-	vmBlock vmctxt_interface.VmDatabase
-	recover *recoverStat
+	block    *ledger.AccountBlock
+	vmBlock  vmctxt_interface.VmDatabase
+	recover  *recoverStat
+	failStat *recoverStat
+	delStat  *recoverStat
+	fail     bool
 }
 
 func (self *accountPoolBlock) Height() uint64 {
@@ -98,10 +113,11 @@ func (self *accountPool) Compact() int {
 			case string:
 				e = errors.New(t)
 			default:
-				e = errors.Errorf("unknown type", err)
+				e = errors.Errorf("unknown type,%+v", err)
 			}
 
-			self.log.Warn("Compact start recover.", "err", err, "stack", e)
+			self.log.Warn("Compact start recover.", "err", err, "withstack", fmt.Sprintf("%+v", e))
+			fmt.Printf("%+v", e)
 			defer self.log.Warn("Compact end recover.")
 			self.pool.RLock()
 			defer self.pool.RUnLock()
@@ -110,13 +126,18 @@ func (self *accountPool) Compact() int {
 			self.initPool()
 		}
 	}()
+
+	defer monitor.LogTime("pool", "accountCompact", time.Now())
 	self.pool.RLock()
 	defer self.pool.RUnLock()
+	defer monitor.LogTime("pool", "accountCompactRMu", time.Now())
+	self.rMu.Lock()
+	defer self.rMu.Unlock()
 	//	this is a rate limiter
 	now := time.Now()
 	sum := 0
 	if now.After(self.loopTime.Add(time.Millisecond * 2)) {
-		defer monitor.LogTime("pool", "accountCompact", now)
+		defer monitor.LogTime("pool", "accountSnippet", now)
 		self.loopTime = now
 		sum = sum + self.loopGenSnippetChains()
 		sum = sum + self.loopAppendChains()
@@ -209,9 +230,10 @@ func (self *accountPool) tryInsert() verifyTask {
 			case string:
 				e = errors.New(t)
 			default:
-				e = errors.Errorf("unknown type", err)
+				e = errors.Errorf("unknown type, %+v", err)
 			}
-			self.log.Warn("tryInsert start recover.", "err", err, "stack", e)
+			self.log.Warn("tryInsert start recover.", "err", err, "stack", fmt.Sprintf("%+v", e))
+			fmt.Printf("%+v", e)
 			defer self.log.Warn("tryInsert end recover.")
 			self.initPool()
 		}
@@ -313,13 +335,28 @@ func (self *accountPool) verifySuccess(bs []*accountPoolBlock) (error, uint64) {
 
 func (self *accountPool) verifyPending(b *accountPoolBlock) error {
 	if !b.recover.inc() {
+		b.recover.reset()
 		monitor.LogEvent("pool", "accountPendingFail")
-		return self.verifyFail(b)
+		return self.modifyToOther(b)
 	}
 	return nil
 }
-
 func (self *accountPool) verifyFail(b *accountPoolBlock) error {
+	if b.fail {
+		if !b.delStat.inc() {
+			self.log.Warn("account block delete.", "hash", b.Hash(), "height", b.Height())
+			self.deleteBlock(b)
+		}
+	} else {
+		if !b.failStat.inc() {
+			byt, _ := b.block.DbSerialize()
+			self.log.Warn("account block verify fail.", "hash", b.Hash(), "height", b.Height(), "byt", base64.StdEncoding.EncodeToString(byt))
+			b.fail = true
+		}
+	}
+	return self.modifyToOther(b)
+}
+func (self *accountPool) modifyToOther(b *accountPoolBlock) error {
 	cp := self.chainpool
 	cur := cp.current
 
@@ -410,6 +447,30 @@ func (self *accountPool) findInTree(hash types.Hash, height uint64) *forkedChain
 	}
 	return nil
 }
+
+func (self *accountPool) findInTreeDisk(hash types.Hash, height uint64, disk bool) *forkedChain {
+	self.rMu.Lock()
+	defer self.rMu.Unlock()
+
+	block := self.chainpool.current.getBlock(height, disk)
+	if block != nil && block.Hash() == hash {
+		return self.chainpool.current
+	}
+
+	for _, c := range self.chainpool.allChain() {
+		b := c.getBlock(height, false)
+
+		if b == nil {
+			continue
+		} else {
+			if b.Hash() == hash {
+				return c
+			}
+		}
+	}
+	return nil
+}
+
 func (self *accountPool) AddDirectBlocks(received *accountPoolBlock, sendBlocks []*accountPoolBlock) error {
 	self.rMu.Lock()
 	defer self.rMu.Unlock()
@@ -500,4 +561,7 @@ func (self *accountPool) genDirectBlocks(blocks []*accountPoolBlock) (*forkedCha
 		results = append(results, b)
 	}
 	return fchain, results, nil
+}
+func (self *accountPool) deleteBlock(block *accountPoolBlock) {
+
 }

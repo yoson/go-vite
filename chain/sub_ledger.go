@@ -1,6 +1,7 @@
 package chain
 
 import (
+	"github.com/vitelabs/go-vite/common/helper"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/ledger"
 )
@@ -113,15 +114,12 @@ func (c *chain) getChainSet(queryParams map[types.Address][2]*ledger.HashHeight)
 		}
 
 		if otherBlockList != nil {
+			helper.ReverseSlice(otherBlockList)
 			blockList = append(otherBlockList, blockList...)
 		}
 
 		for _, block := range blockList {
-			block.AccountAddress = account.AccountAddress
-			// Not contract account block
-			if len(block.PublicKey) == 0 {
-				block.PublicKey = account.PublicKey
-			}
+			c.completeBlock(block, account)
 		}
 
 		queryResult[addr] = blockList

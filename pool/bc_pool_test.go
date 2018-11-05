@@ -7,6 +7,11 @@ import (
 
 	"encoding/json"
 
+	"sync"
+
+	"time"
+
+	"github.com/vitelabs/go-vite/common"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/log15"
@@ -142,4 +147,85 @@ func printChainJust(base *forkedChain) {
 
 func TestGid(t *testing.T) {
 	println(types.SNAPSHOT_GID.String())
+}
+
+func TestMap(t *testing.T) {
+	m := make(map[uint64]uint64)
+
+	u, ok := m[uint64(1)]
+	println(u, ok)
+}
+
+func TestSlice(t *testing.T) {
+	type S struct {
+		i int
+	}
+	var s1 []*S
+
+	for i := 0; i < 10; i++ {
+		s1 = append(s1, &S{i: i})
+	}
+
+	s2 := make([]*S, 10)
+
+	copy(s2, s1)
+
+	s2[5].i = 15
+
+	s2 = append(s2, &S{i: 200})
+
+	for j, v := range s1 {
+		print(v.i, ":", s2[j], ",")
+	}
+	println()
+
+	for j, v := range s2 {
+		print(v.i, ":", s2[j], ",")
+	}
+	println()
+
+}
+
+func TestCurrentRead(t *testing.T) {
+	ints := make(map[int]int)
+	for i := 0; i < 1000000; i++ {
+		ints[i] = i
+	}
+
+	wg := sync.WaitGroup{}
+	for j := 0; j < 100; j++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 1000000; i++ {
+				time.Sleep(1)
+				if ints[i] != i {
+					panic("err")
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+
+}
+
+func TestUselessChain(t *testing.T) {
+	bc := BCPool{}
+
+	cur := &forkedChain{chain: chain{tailHeight: 200}}
+	s := make(map[string]*snippetChain)
+	m := make(map[string]*forkedChain)
+	m["1"] = &forkedChain{chain: chain{headHeight: 20, tailHeight: 0, chainId: "1"}}
+	m["2"] = &forkedChain{chain: chain{headHeight: 40, tailHeight: 0, chainId: "2"}}
+	m["3"] = &forkedChain{chain: chain{headHeight: 51, tailHeight: 0, chainId: "3"}, referChain: m["2"]}
+	m["4"] = &forkedChain{chain: chain{headHeight: 80, tailHeight: 0, chainId: "4"}, referChain: m["3"]}
+	m["5"] = &forkedChain{chain: chain{headHeight: 51, tailHeight: 0, chainId: "5"}, referChain: cur}
+	m["6"] = &forkedChain{chain: chain{headHeight: 70, tailHeight: 0, chainId: "6"}, referChain: cur}
+	bc.compactLock = &common.NonBlockLock{}
+	bc.chainpool = &chainPool{current: cur, chains: m, snippetChains: s}
+	bc.blockpool = &blockPool{freeBlocks: make(map[types.Hash]commonBlock), compoundBlocks: make(map[types.Hash]commonBlock)}
+	bc.log = log15.New("module", "test")
+	bc.LIMIT_HEIGHT = 75 * 2
+	bc.loopDelUselessChain()
 }
