@@ -109,6 +109,8 @@ func (c *chain) InsertAccountBlocks(vmAccountBlocks []*vm_context.VmAccountBlock
 			}
 
 			if sendBlockMeta != nil {
+				// Concurrency write block meta
+
 				sendBlockMeta.ReceiveBlockHeights = append(sendBlockMeta.ReceiveBlockHeights, accountBlock.Height)
 				saveSendBlockMetaErr := c.chainDb.Ac.WriteBlockMeta(batch, &accountBlock.FromBlockHash, sendBlockMeta)
 				if saveSendBlockMetaErr != nil {
@@ -122,7 +124,6 @@ func (c *chain) InsertAccountBlocks(vmAccountBlocks []*vm_context.VmAccountBlock
 		blockMeta := &ledger.AccountBlockMeta{
 			AccountId:         account.AccountId,
 			Height:            accountBlock.Height,
-			SnapshotHeight:    0,
 			RefSnapshotHeight: refSnapshotHeight,
 		}
 
@@ -584,8 +585,7 @@ func (c *chain) DeleteAccountBlocks(addr *types.Address, toHeight uint64) (map[t
 		return nil, deleteAccountBlocksErr
 	}
 
-	_, reopenErr := c.chainDb.Ac.ReopenSendBlocks(batch, reopenList, deleteMap)
-	if reopenErr != nil {
+	if reopenErr := c.chainDb.Ac.ReopenSendBlocks(batch, reopenList, deleteMap); reopenErr != nil {
 		c.log.Error("ReopenSendBlocks failed, error is "+reopenErr.Error(), "method", "DeleteAccountBlocks", "addr", addr, "toHeight", toHeight)
 		return nil, reopenErr
 	}
@@ -627,7 +627,6 @@ func (c *chain) DeleteAccountBlocks(addr *types.Address, toHeight uint64) (map[t
 	c.needSnapshotCache.Remove(needRemoveAddr)
 
 	// Set needSnapshotCache, then add
-
 	c.needSnapshotCache.Set(needAddBlocks)
 
 	c.em.triggerDeleteAccountBlocksSuccess(subLedger)
@@ -704,4 +703,14 @@ func (c *chain) subLedgerAccountIdToAccountAddress(subLedger map[uint64][]*ledge
 		}
 	}
 	return finalSubLedger, nil
+}
+
+func (c *chain) GetAccountBlockMetaByHash(hash *types.Hash) (*ledger.AccountBlockMeta, error) {
+	meta, err := c.chainDb.Ac.GetBlockMeta(hash)
+	if err != nil {
+
+		return nil, err
+	}
+
+	return meta, nil
 }
