@@ -2,13 +2,13 @@ package net
 
 import (
 	"fmt"
-	"github.com/vitelabs/go-vite/p2p"
-	"github.com/vitelabs/go-vite/vite/net/message"
 	"sync/atomic"
 	"time"
 
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/log15"
+	"github.com/vitelabs/go-vite/p2p"
+	"github.com/vitelabs/go-vite/vite/net/message"
 )
 
 type SyncState uint
@@ -78,7 +78,7 @@ const minHeightDifference = 3600
 
 var waitEnoughPeers = 10 * time.Second
 var enoughPeers = 3
-var chainGrowInterval = 10 * time.Second
+var chainGrowInterval = time.Second
 
 func shouldSync(from, to uint64) bool {
 	if to >= from+minHeightDifference {
@@ -210,10 +210,8 @@ wait:
 	s.setState(Syncing)
 	s.sync()
 
-	// check download timeout
 	// check chain grow timeout
-	checkTimer := time.NewTimer(u64ToDuration(s.total * 1000))
-	defer checkTimer.Stop()
+	var timeoutChan <-chan time.Time
 
 	// check chain height
 	checkChainTicker := time.NewTicker(chainGrowInterval)
@@ -247,9 +245,9 @@ wait:
 			s.log.Info("sync downloaded")
 			s.setState(SyncDownloaded)
 			// check chain height timeout
-			checkTimer.Reset(u64ToDuration(s.total * 1000))
+			timeoutChan = time.NewTimer(u64ToDuration(s.total * 1000)).C
 
-		case <-checkTimer.C:
+		case <-timeoutChan:
 			s.log.Error("sync error: timeout")
 			s.setState(Syncerr)
 			return
@@ -263,6 +261,7 @@ wait:
 			}
 
 			s.fc.threshold(current.Height)
+			s.pool.threshold(current.Height)
 			s.log.Debug(fmt.Sprintf("current height: %d", current.Height))
 
 		case <-s.term:
