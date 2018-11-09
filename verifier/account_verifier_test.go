@@ -177,7 +177,7 @@ func GenesisReceiveMintage(vite *VitePrepared, addFunc AddChainDierct) error {
 	}
 	genResult, err := gen.GenerateWithOnroad(*sendBlock, nil, func(addr types.Address, data []byte) (signedData, pubkey []byte, err error) {
 		return ed25519.Sign(genesisAccountPrivKey, data), genesisAccountPubKey, nil
-	}, defaultDifficulty)
+	}, defaultDifficulty, nil)
 	if err != nil {
 		return err
 	}
@@ -393,7 +393,7 @@ func AddrPledgeReceive(c chain.Chain, v *AccountVerifier, sendBlock *ledger.Acco
 
 	return gen.GenerateWithOnroad(*sendBlock, consensusMessage, func(addr types.Address, data []byte) (signedData, pubkey []byte, err error) {
 		return ed25519.Sign(producerPrivKey, data), producerPubKey, nil
-	}, nil)
+	}, nil, nil)
 }
 
 func Add1SendAddr2(c chain.Chain, v *AccountVerifier) (blocks []*vm_context.VmAccountBlock, err error) {

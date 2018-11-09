@@ -2,9 +2,11 @@ package remote
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"github.com/pkg/errors"
+	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/log15"
 	"github.com/vitelabs/go-vite/pow"
 	"io/ioutil"
@@ -28,11 +30,12 @@ func InitRawUrl(rawurl string) {
 	requestUrl = rawurl
 }
 
-func GenerateWork(dataHash []byte, difficulty *big.Int) (*string, error) {
+func GenerateWork(difficulty *big.Int, dataHash types.Hash) ([]byte, error) {
 	threshold := pow.DifficultyToTarget(difficulty)
+	data := dataHash.Bytes()
 	wg := &workGenerate{
 		Threshold: threshold.Text(16),
-		DataHash:  hex.EncodeToString(dataHash),
+		DataHash:  hex.EncodeToString(data),
 	}
 	bytesData, err := json.Marshal(wg)
 	if err != nil {
@@ -43,7 +46,19 @@ func GenerateWork(dataHash []byte, difficulty *big.Int) (*string, error) {
 		return nil, err
 	}
 
-	return &workResult.Work, nil
+	nonceBig, ok := new(big.Int).SetString(workResult.Work, 16)
+	if !ok {
+		return nil, errors.New("wrong nonce str")
+	}
+	nonceUint64 := nonceBig.Uint64()
+	nonce := make([]byte, 8)
+	binary.LittleEndian.PutUint64(nonce[:], nonceUint64)
+
+	if !pow.CheckPowNonce(difficulty, nonce, data) {
+		return nil, errors.New("check generate work failed")
+	}
+
+	return nonce, nil
 }
 
 func CancelWork(dataHash []byte) error {

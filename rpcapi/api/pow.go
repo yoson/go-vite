@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/binary"
 	"errors"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/pow"
@@ -25,30 +24,11 @@ func (p Pow) GetPowNonce(difficulty string, data types.Hash) ([]byte, error) {
 		return nil, ErrStrToBigInt
 	}
 
-	work, e := remote.GenerateWork(data.Bytes(), realDifficulty)
+	nonce, e := remote.GenerateWork(realDifficulty, data)
 	if e != nil {
 		return nil, e
 	}
-
-	nonceStr := *work
-	nonceBig, ok := new(big.Int).SetString(nonceStr, 16)
-	if !ok {
-		return nil, errors.New("wrong nonce str")
-	}
-	nonceUint64 := nonceBig.Uint64()
-	nn := make([]byte, 8)
-	binary.LittleEndian.PutUint64(nn[:], nonceUint64)
-
-	bd, ok := new(big.Int).SetString(difficulty, 10)
-	if !ok {
-		return nil, errors.New("wrong nonce difficulty")
-	}
-
-	if !pow.CheckPowNonce(bd, nn, data.Bytes()) {
-		return nil, errors.New("check nonce failed")
-	}
-
-	return nn, nil
+	return nonce, nil
 }
 
 func (p Pow) CancelPow(data types.Hash) error {

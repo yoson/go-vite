@@ -334,7 +334,7 @@ func (m WalletApi) CreateTxWithPassphrase(params CreateTransferTxParms) error {
 			return nil, nil, e
 		}
 		return key.SignData(data)
-	})
+	}, nil)
 
 	if e != nil {
 		newerr, _ := TryMakeConcernedError(e)

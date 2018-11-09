@@ -171,7 +171,7 @@ func callTransfer(vite *VitePrepared, fromAddr, toAddr *types.Address,
 
 	genResult, err := gen.GenerateWithMessage(im, func(addr types.Address, data []byte) (signedData, pubkey []byte, err error) {
 		return ed25519.Sign(fromAddrPrivKey, data), fromAddrPubKey, nil
-	})
+	}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +248,7 @@ func createContract(vite *VitePrepared, addr *types.Address, addrPrivKey ed25519
 
 	genResult, err := gen.GenerateWithMessage(im, func(addr types.Address, data []byte) (signedData, pubkey []byte, err error) {
 		return ed25519.Sign(addrPrivKey, data), addrPubKey, nil
-	})
+	}, nil)
 	if err != nil {
 		return nil, err
 	}

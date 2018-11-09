@@ -94,7 +94,7 @@ func (t TestApi) CreateTxWithPrivKey(params CreateTxWithPrivKeyParmsTest) error 
 		signData := ed25519.Sign(privkey, data)
 		pubkey = privkey.PubByte()
 		return signData, pubkey, nil
-	})
+	}, nil)
 	if e != nil {
 		newerr, _ := TryMakeConcernedError(e)
 		return newerr
@@ -148,7 +148,7 @@ func (t TestApi) ReceiveOnroadTx(params CreateReceiveTxParms) error {
 	}
 	result, e := g.GenerateWithMessage(msg, func(addr types.Address, data []byte) (signedData, pubkey []byte, err error) {
 		return ed25519.Sign(privKey, data), pubKey, nil
-	})
+	}, nil)
 	if e != nil {
 		newerr, _ := TryMakeConcernedError(e)
 		return newerr

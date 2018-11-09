@@ -17,6 +17,7 @@ import (
 const DefaultHeightDifference uint64 = 10
 
 type SignFunc func(addr types.Address, data []byte) (signedData, pubkey []byte, err error)
+type PowFunc func(difficulty *big.Int, dataHash types.Hash) ([]byte, error)
 
 type Generator struct {
 	vm        vm.VM
@@ -46,7 +47,7 @@ func NewGenerator(chain vm_context.Chain, snapshotBlockHash, prevBlockHash *type
 	return gen, nil
 }
 
-func (gen *Generator) GenerateWithMessage(message *IncomingMessage, signFunc SignFunc) (*GenResult, error) {
+func (gen *Generator) GenerateWithMessage(message *IncomingMessage, signFunc SignFunc, powFunc PowFunc) (*GenResult, error) {
 	var genResult *GenResult
 	var errGenMsg error
 
@@ -59,9 +60,9 @@ func (gen *Generator) GenerateWithMessage(message *IncomingMessage, signFunc Sig
 		}
 		sendBlock := gen.vmContext.GetAccountBlockByHash(message.FromBlockHash)
 		//genResult, errGenMsg = gen.GenerateWithOnroad(*sendBlock, nil, signFunc, message.Difficulty)
-		genResult, errGenMsg = gen.GenerateWithOnroad(*sendBlock, nil, signFunc, message.Difficulty)
+		genResult, errGenMsg = gen.GenerateWithOnroad(*sendBlock, nil, signFunc, message.Difficulty, powFunc)
 	default:
-		block, err := gen.packSendBlockWithMessage(message)
+		block, err := gen.packSendBlockWithMessage(message, powFunc)
 		if err != nil {
 			return nil, err
 		}
@@ -73,7 +74,7 @@ func (gen *Generator) GenerateWithMessage(message *IncomingMessage, signFunc Sig
 	return genResult, nil
 }
 
-func (gen *Generator) GenerateWithOnroad(sendBlock ledger.AccountBlock, consensusMsg *ConsensusMessage, signFunc SignFunc, difficulty *big.Int) (*GenResult, error) {
+func (gen *Generator) GenerateWithOnroad(sendBlock ledger.AccountBlock, consensusMsg *ConsensusMessage, signFunc SignFunc, difficulty *big.Int, powFunc PowFunc) (*GenResult, error) {
 	var producer types.Address
 	if consensusMsg == nil {
 		producer = sendBlock.ToAddress
@@ -81,7 +82,7 @@ func (gen *Generator) GenerateWithOnroad(sendBlock ledger.AccountBlock, consensu
 		producer = consensusMsg.Producer
 	}
 
-	block, err := gen.packBlockWithSendBlock(&sendBlock, consensusMsg, difficulty)
+	block, err := gen.packBlockWithSendBlock(&sendBlock, consensusMsg, difficulty, powFunc)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +142,7 @@ func (gen *Generator) generateBlock(block *ledger.AccountBlock, sendBlock *ledge
 	}, nil
 }
 
-func (gen *Generator) packSendBlockWithMessage(message *IncomingMessage) (blockPacked *ledger.AccountBlock, err error) {
+func (gen *Generator) packSendBlockWithMessage(message *IncomingMessage, powFunc PowFunc) (blockPacked *ledger.AccountBlock, err error) {
 	latestBlock := gen.vmContext.PrevAccountBlock()
 	if latestBlock == nil {
 		return nil, errors.New("account address doesn't exist")
@@ -161,12 +162,15 @@ func (gen *Generator) packSendBlockWithMessage(message *IncomingMessage) (blockP
 	}
 
 	if message.Difficulty != nil {
+		if powFunc == nil {
+			powFunc = pow.GetPowNonce
+		}
 		// currently, default mode of GenerateWithOnroad is to calc pow
-		nonce, err := pow.GetPowNonce(message.Difficulty, types.DataHash(append(blockPacked.AccountAddress.Bytes(), blockPacked.PrevHash.Bytes()...)))
+		nonce, err := powFunc(message.Difficulty, types.DataListHash(blockPacked.AccountAddress.Bytes(), blockPacked.PrevHash.Bytes()))
 		if err != nil {
 			return nil, err
 		}
-		blockPacked.Nonce = nonce[:]
+		blockPacked.Nonce = nonce
 		blockPacked.Difficulty = message.Difficulty
 	}
 
@@ -178,7 +182,7 @@ func (gen *Generator) packSendBlockWithMessage(message *IncomingMessage) (blockP
 	return blockPacked, nil
 }
 
-func (gen *Generator) packBlockWithSendBlock(sendBlock *ledger.AccountBlock, consensusMsg *ConsensusMessage, difficulty *big.Int) (blockPacked *ledger.AccountBlock, err error) {
+func (gen *Generator) packBlockWithSendBlock(sendBlock *ledger.AccountBlock, consensusMsg *ConsensusMessage, difficulty *big.Int, powFunc PowFunc) (blockPacked *ledger.AccountBlock, err error) {
 	gen.log.Info("PackReceiveBlock", "sendBlock.Hash", sendBlock.Hash, "sendBlock.To", sendBlock.ToAddress)
 
 	blockPacked = &ledger.AccountBlock{
@@ -224,7 +228,10 @@ func (gen *Generator) packBlockWithSendBlock(sendBlock *ledger.AccountBlock, con
 		if snapshotBlock.Height > preBlockReferredSbHeight && difficulty != nil {
 			// currently, default mode of GenerateWithOnroad is to calc pow
 			//difficulty = pow.defaultDifficulty
-			nonce, err := pow.GetPowNonce(difficulty, types.DataHash(append(blockPacked.AccountAddress.Bytes(), blockPacked.PrevHash.Bytes()...)))
+			if powFunc == nil {
+				powFunc = pow.GetPowNonce
+			}
+			nonce, err := powFunc(difficulty, types.DataListHash(blockPacked.AccountAddress.Bytes(), blockPacked.PrevHash.Bytes()))
 			if err != nil {
 				return nil, err
 			}

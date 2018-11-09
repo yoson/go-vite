@@ -172,7 +172,7 @@ func (tp *ContractTaskProcessor) processOneAddress(task *contractTask) {
 				return nil, nil, err
 			}
 			return key.SignData(data)
-		}, nil)
+		}, nil, nil)
 	if err != nil {
 		plog.Error("GenerateWithOnroad failed", "error", err)
 		return

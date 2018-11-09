@@ -11,7 +11,7 @@ import (
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/log15"
 	"github.com/vitelabs/go-vite/vm"
-	"github.com/vitelabs/go-vite/vm/contracts"
+	"github.com/vitelabs/go-vite/vm/contracts/abi"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -64,7 +64,7 @@ func TestGenerator_GenerateWithOnroad(t *testing.T) {
 	genesisAccountPrivKey, _ := ed25519.HexToPrivateKey(genesisAccountPrivKeyStr)
 	genesisAccountPubKey := genesisAccountPrivKey.PubByte()
 
-	fromBlock, err := v.chain.GetLatestAccountBlock(&contracts.AddressMintage)
+	fromBlock, err := v.chain.GetLatestAccountBlock(&abi.AddressMintage)
 	if err != nil {
 		t.Error("GetLatestAccountBlock", err)
 		return
@@ -81,7 +81,7 @@ func TestGenerator_GenerateWithOnroad(t *testing.T) {
 	genResult, err := gen.GenerateWithOnroad(*fromBlock, nil,
 		func(addr types.Address, data []byte) (signedData, pubkey []byte, err error) {
 			return ed25519.Sign(genesisAccountPrivKey, data), genesisAccountPubKey, nil
-		}, defaultDifficulty)
+		}, defaultDifficulty, nil)
 	if err != nil {
 		t.Error("GenerateWithOnroad", err)
 		return
@@ -126,12 +126,12 @@ func createRPCBlockCallPledgeContarct(vite *VitePrepared, addr *types.Address) e
 	genesisAccountPubKey := genesisAccountPrivKey.PubByte()
 
 	// call MethodNamePledge
-	pledgeData, _ := contracts.ABIPledge.PackMethod(contracts.MethodNamePledge, addr)
+	pledgeData, _ := abi.ABIPledge.PackMethod(abi.MethodNamePledge, addr)
 
 	im := &IncomingMessage{
 		BlockType:      ledger.BlockTypeSendCall,
 		AccountAddress: ledger.GenesisAccountAddress,
-		ToAddress:      &contracts.AddressPledge,
+		ToAddress:      &abi.AddressPledge,
 		Amount:         pledgeAmount,
 		TokenId:        &ledger.ViteTokenId,
 		Data:           pledgeData,
@@ -148,7 +148,7 @@ func createRPCBlockCallPledgeContarct(vite *VitePrepared, addr *types.Address) e
 
 	genResult, err := gen.GenerateWithMessage(im, func(addr types.Address, data []byte) (signedData, pubkey []byte, err error) {
 		return ed25519.Sign(genesisAccountPrivKey, data), genesisAccountPubKey, nil
-	})
+	}, nil)
 	if err != nil {
 		return err
 	}
@@ -193,7 +193,7 @@ func callTransfer(vite *VitePrepared, fromAddr, toAddr *types.Address, fromAddrP
 
 	genResult, err := gen.GenerateWithMessage(im, func(addr types.Address, data []byte) (signedData, pubkey []byte, err error) {
 		return ed25519.Sign(fromAddrPrivKey, data), fromAddrPubKey, nil
-	})
+	}, nil)
 	if err != nil {
 		return err
 	}
