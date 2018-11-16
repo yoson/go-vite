@@ -311,3 +311,8 @@ func (l *LedgerApi) GetVmLogList(blockHash types.Hash) (ledger.VmLogList, error)
 	}
 	return l.chain.GetVmLogList(block.LogHash)
 }
+
+func (l *LedgerApi) DeleteToHeight(height uint64) (uint64, error) {
+	sbs, _, err := l.chain.DeleteSnapshotBlocksToHeight(height)
+	return uint64(len(sbs)), err
+}
