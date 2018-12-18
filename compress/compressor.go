@@ -6,6 +6,7 @@ import (
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/log15"
 	"io"
+	"net"
 	"os"
 	"path"
 	"path/filepath"
@@ -98,8 +99,8 @@ func (c *Compressor) FileReader(filename string) io.ReadCloser {
 	return NewFileReader(path.Join(c.dir, filename))
 }
 
-func (c *Compressor) BlockParser(reader io.Reader, blockNum uint64, processFunc func(block ledger.Block, err error)) {
-	BlockParser(reader, blockNum, processFunc)
+func (c *Compressor) NetBlockParser(reader net.Conn, blockNum uint64, timeout time.Duration, processFunc func(block ledger.Block, err error)) {
+	NetBlockParser(reader, blockNum, timeout, processFunc)
 }
 
 func (c *Compressor) Start() bool {

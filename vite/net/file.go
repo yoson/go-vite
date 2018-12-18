@@ -551,7 +551,7 @@ func (fc *fileClient) receiveFile(ctx *conn) error {
 
 		file := ctx.file
 
-		fc.chain.Compressor().BlockParser(ctx, file.BlockNumbers, func(block ledger.Block, err error) {
+		fc.chain.Compressor().NetBlockParser(ctx, file.BlockNumbers, time.Minute, func(block ledger.Block, err error) {
 			if err != nil {
 				return
 			}

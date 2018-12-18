@@ -7,6 +7,8 @@ import (
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/log15"
 	"io"
+	"net"
+	"time"
 )
 
 type blockProcessor func(block ledger.Block, err error)
@@ -34,7 +36,7 @@ var blockParserLog = log15.New("module", "compress/block_parser")
 var readNum = 1024 * 1024 * 10 // 10M
 
 // If blockNum is zero, finish when stream encounter io.EOF
-func BlockParser(reader io.Reader, blockNum uint64, processor blockProcessor) {
+func NetBlockParser(reader net.Conn, blockNum uint64, timeout time.Duration, processor blockProcessor) {
 	blockParser := &blockParserCache{
 		reader:        reader,
 		processor:     processor,
@@ -46,10 +48,14 @@ func BlockParser(reader io.Reader, blockNum uint64, processor blockProcessor) {
 	readBytes := make([]byte, readNum)
 
 	for {
+		if timeout > 0 {
+			reader.SetReadDeadline(time.Now().Add(timeout))
+		}
 		readN, rErr := reader.Read(readBytes)
 
 		if rErr != nil && rErr != io.EOF {
 			blockParserLog.Error("Read failed, error is " + rErr.Error())
+			processor(nil, rErr)
 			return
 		}
 
