@@ -576,6 +576,9 @@ func (verifier *AccountVerifier) checkAccAddressType(bs *BlockState) bool {
 			return false
 		}
 	}
+	if bs.accType != ledger.AccountTypeContract || bs.accType != ledger.AccountTypeGeneral {
+		notExistType.Mark(1)
+	}
 	return true
 }
 

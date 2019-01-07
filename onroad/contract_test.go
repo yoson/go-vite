@@ -1,14 +1,22 @@
 package onroad_test
 
 import (
+	"encoding/base64"
 	"fmt"
 	"github.com/vitelabs/go-vite/chain"
 	"github.com/vitelabs/go-vite/common"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/config"
+	"github.com/vitelabs/go-vite/consensus"
+	"github.com/vitelabs/go-vite/crypto/ed25519"
+	"github.com/vitelabs/go-vite/generator"
+	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/onroad"
+	"github.com/vitelabs/go-vite/pool"
+	"github.com/vitelabs/go-vite/verifier"
 	"github.com/vitelabs/go-vite/vite/net"
-	"path/filepath"
+	"github.com/vitelabs/go-vite/wallet"
+	"math/big"
 	"testing"
 	"time"
 )
@@ -100,22 +108,101 @@ func TestOnroadBlocksPool_GetNextContractTx(t *testing.T) {
 type testDb struct {
 	chain  chain.Chain
 	onroad *onroad.Manager
+	pool   *pool.BlockPool
 }
 
 func PrepareDb() *testDb {
-	dataDir := filepath.Join(common.HomeDir(), "testvite")
-	fmt.Printf("----dataDir:%+v\n", dataDir)
+	//dataDir := filepath.Join(common.HomeDir(), "testvite")
+	//fmt.Printf("----dataDir:%+v\n", dataDir)
 	//os.RemoveAll(filepath.Join(common.HomeDir(), "ledger"))
 
-	c := chain.NewChain(&config.Config{DataDir: dataDir})
-	or := onroad.NewManager(nil, nil, nil, nil)
+	c := chain.NewChain(&config.Config{DataDir: "/Users/crzn/Library/GVite/devdata"})
+
+	w := wallet.New(nil)
+
+	p := pool.NewPool(c)
+	cs := &consensus.MockConsensus{}
+	av := verifier.NewAccountVerifier(c, cs)
+	sv := verifier.NewSnapshotVerifier(c, cs)
+	p.Init(&pool.MockSyncer{}, w, sv, av)
+	p.Start()
+
+	or := onroad.NewManager(nil, p, nil, w)
 
 	c.Init()
 	or.Init(c)
 	c.Start()
-
 	return &testDb{
 		chain:  c,
 		onroad: or,
+	}
+}
+
+func TestAutoReceiveWorker_Status(t *testing.T) {
+	addrstr1 := "vite_8422888f3396532e2d19031b39182615b4911e87ca7a33f5e8"
+	addrstr2 := "vite_ac8a1c578e923ee48cadb44e9c985f15aeefd56ec157dfe7e7"
+	_, err := types.HexToAddress(addrstr1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr2, err := types.HexToAddress(addrstr2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privByte, err := base64.StdEncoding.DecodeString("")
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	t.Log(common.Bytes2Hex(privByte))
+
+	voteDateBase64 := "/cF/JQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3NzcwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	data, err := base64.StdEncoding.DecodeString(voteDateBase64)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	db := PrepareDb()
+	var privkey ed25519.PrivateKey
+	privkey = privByte
+	tokenId, err := types.HexToTokenTypeId("tti_8973a8d5ba05430c6821f3ff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := &generator.IncomingMessage{
+		BlockType:      ledger.BlockTypeSendCall,
+		AccountAddress: addr2,
+		ToAddress:      &types.AddressPledge,
+		TokenId:        &tokenId,
+		Amount:         big.NewInt(0),
+		Fee:            nil,
+		Data:           data,
+		Difficulty:     nil,
+	}
+	_, fitestSnapshotBlockHash, err := generator.GetFittestGeneratorSnapshotHash(db.chain, &msg.AccountAddress, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, e := generator.NewGenerator(db.chain, fitestSnapshotBlockHash, nil, &msg.AccountAddress)
+	if e != nil {
+		t.Fatal(e)
+	}
+	result, e := g.GenerateWithMessage(msg, func(addr types.Address, data []byte) (signedData, pubkey []byte, err error) {
+		signData := ed25519.Sign(privkey, data)
+		pubkey = privkey.PubByte()
+		return signData, pubkey, nil
+	})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	if len(result.BlockGenList) > 0 && result.BlockGenList[0] != nil {
+		//return onroad.AddDirectAccountBlock(addr2, result.BlockGenList[0])
+	} else {
+		t.Error("generator gen an empty block")
+		return
 	}
 }
