@@ -23,7 +23,6 @@ type AccountBlockMeta struct {
 	// Height
 	Height uint64 `json:"height"`
 
-	// Block status, 1 means open, 2 means closed
 	ReceiveBlockHeights []uint64 `json:"receiveBlockHeights"`
 
 	// Height of Snapshot block which confirm this account block
