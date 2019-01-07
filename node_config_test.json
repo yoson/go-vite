@@ -17,6 +17,7 @@
     "vnode://6913de145fe933f2ba2835ab33a00c289b93167ce82e7bcccffedb67d7e19e3f@123.206.85.158:8483",
     "vnode://99d333bc795cb2b42f1a64309669356ae47cac8a5fc652ca39b212bd0bb8564b@150.109.120.109:8483"
   ],
+
   "PublicModules": [
     "ledger",
     "public_onroad",
