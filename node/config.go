@@ -43,7 +43,7 @@ type Config struct {
 	// p2p
 	NetSelect            string
 	Identity             string   `json:"Identity"`
-	PrivateKey           string   `json:"PeerKey"`
+	PrivateKey           string   `json:"PrivateKey"`
 	MaxPeers             uint     `json:"MaxPeers"`
 	MaxPassivePeersRatio uint     `json:"MaxPassivePeersRatio"`
 	MaxPendingPeers      uint     `json:"MaxPendingPeers"`
@@ -168,7 +168,7 @@ func (c *Config) makeP2PConfig() *p2p.Config {
 		MaxInboundRatio: c.MaxPassivePeersRatio,
 		Port:            c.Port,
 		DataDir:         filepath.Join(c.DataDir, p2p.Dirname),
-		PrivateKey:      c.GetPrivateKey(),
+		PeerKey:         c.GetPrivateKey(),
 		BootNodes:       c.BootNodes,
 		StaticNodes:     c.StaticNodes,
 		Discovery:       c.Discovery,
@@ -186,13 +186,6 @@ func (c *Config) makeForkPointsConfig(genesisConfig *config.Genesis) *config.For
 		forkPoints.Vite1 = &config.ForkPoint{}
 	}
 
-	if forkPoints.Vite1.Height <= 0 {
-		forkPoints.Vite1.Height = 1000 // test, need modify
-	}
-
-	/*if forkPoints.Vite1.Hash == nil {
-		forkPoints.Vite1.Hash = &types.Hash{} // test, need modify
-	}*/
 	return forkPoints
 }
 
