@@ -76,12 +76,13 @@ type Server interface {
 	UnSubNodes(ch chan<- *discovery.Node)
 	URL() string
 	Config() *Config
+	Block(id discovery.NodeID, ip net.IP, err error)
 }
 
 type server struct {
 	config      *Config
 	addr        *net.TCPAddr
-	StaticNodes []*discovery.Node
+	staticNodes []*discovery.Node
 
 	running   int32          // atomic
 	wg        sync.WaitGroup // Wait for all jobs done
@@ -136,7 +137,7 @@ func New(cfg *Config) (Server, error) {
 	svr := &server{
 		config:      cfg,
 		addr:        tcpAddr,
-		StaticNodes: parseNodes(cfg.StaticNodes),
+		staticNodes: parseNodes(cfg.StaticNodes),
 		peers:       NewPeerSet(),
 		pending:     make(chan struct{}, cfg.MaxPendingPeers),
 		addPeer:     make(chan *transport, 5),
@@ -299,7 +300,7 @@ func (svr *server) blocked(buf []byte) bool {
 	return svr.blockUtil.Blocked(buf)
 }
 
-func (svr *server) block(id discovery.NodeID, ip net.IP, err error) {
+func (svr *server) Block(id discovery.NodeID, ip net.IP, err error) {
 	svr.rw.Lock()
 	defer svr.rw.Unlock()
 
@@ -322,7 +323,7 @@ func (svr *server) unblock(id discovery.NodeID, ip net.IP) {
 }
 
 func (svr *server) dialStatic() {
-	for _, node := range svr.StaticNodes {
+	for _, node := range svr.staticNodes {
 		svr.dial(node.ID, node.TCPAddr(), static, nil)
 	}
 }
@@ -381,7 +382,7 @@ func (svr *server) dial(id discovery.NodeID, addr *net.TCPAddr, flag connFlag, d
 		if conn, err := svr.dialer.Dial("tcp", addr.String()); err == nil {
 			svr.setupConn(conn, flag, id)
 		} else {
-			svr.block(id, addr.IP, err)
+			svr.Block(id, addr.IP, err)
 			svr.log.Warn(fmt.Sprintf("dial node %s@%s failed: %v", id, addr, err))
 		}
 
@@ -463,7 +464,7 @@ func (svr *server) setupConn(c net.Conn, flag connFlag, id discovery.NodeID) {
 	if err = svr.checkHead(c); err != nil {
 		svr.log.Warn(fmt.Sprintf("HeadShake with %s error: %v, block it", c.RemoteAddr(), err))
 		c.Close()
-		svr.block(id, c.RemoteAddr().(*net.TCPAddr).IP, err)
+		svr.Block(id, c.RemoteAddr().(*net.TCPAddr).IP, err)
 		return
 	}
 
@@ -475,7 +476,7 @@ func (svr *server) setupConn(c net.Conn, flag connFlag, id discovery.NodeID) {
 	if err = svr.handleTS(ts, id); err != nil {
 		svr.log.Warn(fmt.Sprintf("HandShake with %s error: %v, block it", c.RemoteAddr(), err))
 		ts.Close()
-		svr.block(id, c.RemoteAddr().(*net.TCPAddr).IP, err)
+		svr.Block(id, c.RemoteAddr().(*net.TCPAddr).IP, err)
 		return
 	}
 
@@ -569,7 +570,15 @@ func (svr *server) checkConn(id discovery.NodeID, flag connFlag) error {
 func (svr *server) loop() {
 	defer svr.wg.Done()
 
-	var peersCount uint
+	var peersCount int
+	var checkTicker = time.NewTicker(30 * time.Second)
+	defer checkTicker.Stop()
+	run := func() {
+		svr.dialStatic()
+		if svr.discv != nil {
+			svr.discv.More(svr.nodeChan, (DefaultMinPeers-peersCount)*4)
+		}
+	}
 
 loop:
 	for {
@@ -597,7 +606,7 @@ loop:
 
 			if err != nil {
 				c.Close()
-				svr.block(c.remoteID, c.remoteIP, err)
+				svr.Block(c.remoteID, c.remoteIP, err)
 				svr.log.Warn(fmt.Sprintf("can`t create new peer: %v", err))
 			}
 
@@ -614,19 +623,25 @@ loop:
 				svr.dial(p.ID(), p.RemoteAddr(), static, nil)
 			}
 
-			if svr.discv != nil {
-				svr.discv.More(svr.nodeChan)
+		case <-checkTicker.C:
+			if peersCount < DefaultMinPeers {
+				run()
 			}
+			svr.markPeers()
 		}
 	}
 
 	svr.peers.DisconnectAll()
 
+	svr.markPeers()
+}
+
+func (svr *server) markPeers() {
 	if svr.discv != nil {
 		now := time.Now()
 		svr.peers.mu.Lock()
 		defer svr.peers.mu.Unlock()
-		for id, p := range svr.peers.peers {
+		for id, p := range svr.peers.m {
 			svr.discv.Mark(id, now.Sub(p.Created).Nanoseconds())
 		}
 	}
@@ -648,7 +663,7 @@ func (svr *server) Peers() []*PeerInfo {
 }
 
 func (svr *server) PeersCount() uint {
-	return svr.peers.Size()
+	return uint(svr.peers.Size())
 }
 
 func (svr *server) NodeInfo() *NodeInfo {

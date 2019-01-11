@@ -79,6 +79,7 @@ const (
 	BlockTypeSendReward
 	BlockTypeReceive
 	BlockTypeReceiveError
+	BlockTypeSendRefund
 )
 
 type AccountBlock struct {
@@ -376,7 +377,10 @@ func (ab *AccountBlock) Deserialize(buf []byte) error {
 }
 
 func (ab *AccountBlock) IsSendBlock() bool {
-	return ab.BlockType == BlockTypeSendCreate || ab.BlockType == BlockTypeSendCall || ab.BlockType == BlockTypeSendReward
+	return ab.BlockType == BlockTypeSendCreate ||
+		ab.BlockType == BlockTypeSendCall ||
+		ab.BlockType == BlockTypeSendReward ||
+		ab.BlockType == BlockTypeSendRefund
 }
 
 func (ab *AccountBlock) IsReceiveBlock() bool {

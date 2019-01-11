@@ -17,6 +17,7 @@ import (
 	"github.com/vitelabs/go-vite/vite/net"
 	"github.com/vitelabs/go-vite/wallet"
 	"math/big"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -108,14 +109,27 @@ func TestOnroadBlocksPool_GetNextContractTx(t *testing.T) {
 type testDb struct {
 	chain  chain.Chain
 	onroad *onroad.Manager
-	pool   *pool.BlockPool
 }
 
 func PrepareDb() *testDb {
-	//dataDir := filepath.Join(common.HomeDir(), "testvite")
-	//fmt.Printf("----dataDir:%+v\n", dataDir)
+	dataDir := filepath.Join(common.HomeDir(), "testvite")
+	fmt.Printf("----dataDir:%+v\n", dataDir)
 	//os.RemoveAll(filepath.Join(common.HomeDir(), "ledger"))
 
+	c := chain.NewChain(&config.Config{DataDir: dataDir})
+	or := onroad.NewManager(nil, nil, nil, nil)
+
+	c.Init()
+	or.Init(c)
+	c.Start()
+
+	return &testDb{
+		chain:  c,
+		onroad: or,
+	}
+}
+
+func TestAutoReceiveWorker_Status(t *testing.T) {
 	c := chain.NewChain(&config.Config{DataDir: "/Users/crzn/Library/GVite/devdata"})
 
 	w := wallet.New(nil)
@@ -132,15 +146,9 @@ func PrepareDb() *testDb {
 	c.Init()
 	or.Init(c)
 	c.Start()
-	return &testDb{
-		chain:  c,
-		onroad: or,
-	}
-}
 
-func TestAutoReceiveWorker_Status(t *testing.T) {
-	addrstr1 := "vite_8422888f3396532e2d19031b39182615b4911e87ca7a33f5e8"
-	addrstr2 := "vite_ac8a1c578e923ee48cadb44e9c985f15aeefd56ec157dfe7e7"
+	addrstr1 := ""
+	addrstr2 := ""
 	_, err := types.HexToAddress(addrstr1)
 	if err != nil {
 		t.Fatal(err)
@@ -175,10 +183,8 @@ func TestAutoReceiveWorker_Status(t *testing.T) {
 		AccountAddress: addr2,
 		ToAddress:      &types.AddressPledge,
 		TokenId:        &tokenId,
-		Amount:         big.NewInt(0),
-		Fee:            nil,
+		Amount:         big.NewInt(10000),
 		Data:           data,
-		Difficulty:     nil,
 	}
 	_, fitestSnapshotBlockHash, err := generator.GetFittestGeneratorSnapshotHash(db.chain, &msg.AccountAddress, nil, true)
 	if err != nil {
@@ -200,7 +206,9 @@ func TestAutoReceiveWorker_Status(t *testing.T) {
 		t.Fatal(result.Err)
 	}
 	if len(result.BlockGenList) > 0 && result.BlockGenList[0] != nil {
-		//return onroad.AddDirectAccountBlock(addr2, result.BlockGenList[0])
+		if err := p.AddDirectAccountBlock(addr2, result.BlockGenList[0]); err != nil {
+			t.Error(err)
+		}
 	} else {
 		t.Error("generator gen an empty block")
 		return

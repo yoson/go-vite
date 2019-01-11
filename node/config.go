@@ -33,9 +33,10 @@ type Config struct {
 	KafkaProducers []string `json:"KafkaProducers"`
 
 	// chain
-	OpenBlackBlock bool   `json:"OpenBlackBlock"`
-	LedgerGcRetain uint64 `json:"LedgerGcRetain"`
-	LedgerGc       bool   `json:"LedgerGc"`
+	OpenBlackBlock       bool   `json:"OpenBlackBlock"`
+	LedgerGcRetain       uint64 `json:"LedgerGcRetain"`
+	LedgerGc             *bool  `json:"LedgerGc"`
+	OpenFilterTokenIndex *bool  `json:"OpenFilterTokenIndex"`
 
 	// genesis
 	GenesisFile string `json:"GenesisFile"`
@@ -97,7 +98,7 @@ type Config struct {
 	Topology               []string `json:"Topology"`
 	TopologyTopic          string   `json:"TopologyTopic"`
 	TopologyReportInterval int      `json:"TopologyReportInterval"`
-	TopoDisabled           bool     `json:"TopoDisabled"`
+	TopoEnable             bool     `json:"TopoEnable"`
 	DashboardTargetURL     string
 
 	// reward
@@ -127,12 +128,12 @@ func (c *Config) makeViteConfig() *config.Config {
 
 func (c *Config) makeNetConfig() *config.Net {
 	return &config.Net{
-		Single:       c.Single,
-		FilePort:     uint16(c.FilePort),
-		Topology:     c.Topology,
-		Topic:        c.TopologyTopic,
-		Interval:     int64(c.TopologyReportInterval),
-		TopoDisabled: c.TopoDisabled,
+		Single:     c.Single,
+		FilePort:   uint16(c.FilePort),
+		Topology:   c.Topology,
+		Topic:      c.TopologyTopic,
+		Interval:   int64(c.TopologyReportInterval),
+		TopoEnable: c.TopoEnable,
 	}
 }
 
@@ -182,8 +183,11 @@ func (c *Config) makeForkPointsConfig(genesisConfig *config.Genesis) *config.For
 		forkPoints = genesisConfig.ForkPoints
 	}
 
-	if forkPoints.Vite1 == nil {
-		forkPoints.Vite1 = &config.ForkPoint{}
+	if forkPoints.Smart == nil {
+		forkPoints.Smart = &config.ForkPoint{}
+	}
+	if forkPoints.Smart.Height == 0 {
+		forkPoints.Smart.Height = 5788912
 	}
 
 	return forkPoints
@@ -296,42 +300,45 @@ func (c *Config) makeGenesisConfig() *config.Genesis {
 
 func (c *Config) makeChainConfig() *config.Chain {
 
-	if len(c.KafkaProducers) == 0 {
-		return &config.Chain{
-			KafkaProducers: nil,
-			OpenBlackBlock: c.OpenBlackBlock,
-			LedgerGcRetain: c.LedgerGcRetain,
-			LedgerGc:       true,
-		}
-	}
-
 	// init kafkaProducers
 	kafkaProducers := make([]*config.KafkaProducer, len(c.KafkaProducers))
 
-	for i, kafkaProducer := range c.KafkaProducers {
-		splitKafkaProducer := strings.Split(kafkaProducer, "|")
-		if len(splitKafkaProducer) != 2 {
-			log.Warn(fmt.Sprintf("KafkaProducers is setting error，The program will skip here and continue processing"))
-			goto END
-		}
+	if len(c.KafkaProducers) > 0 {
+		for i, kafkaProducer := range c.KafkaProducers {
+			splitKafkaProducer := strings.Split(kafkaProducer, "|")
+			if len(splitKafkaProducer) != 2 {
+				log.Warn(fmt.Sprintf("KafkaProducers is setting error，The program will skip here and continue processing"))
+				break
+			}
 
-		splitKafkaBroker := strings.Split(splitKafkaProducer[0], ",")
-		if len(splitKafkaBroker) == 0 {
-			log.Warn(fmt.Sprintf("KafkaProducers is setting error，The program will skip here and continue processing"))
-			goto END
-		}
+			splitKafkaBroker := strings.Split(splitKafkaProducer[0], ",")
+			if len(splitKafkaBroker) == 0 {
+				log.Warn(fmt.Sprintf("KafkaProducers is setting error，The program will skip here and continue processing"))
+				break
+			}
 
-		kafkaProducers[i] = &config.KafkaProducer{
-			BrokerList: splitKafkaBroker,
-			Topic:      splitKafkaProducer[1],
+			kafkaProducers[i] = &config.KafkaProducer{
+				BrokerList: splitKafkaBroker,
+				Topic:      splitKafkaProducer[1],
+			}
 		}
 	}
-END:
+
+	ledgerGc := true
+	if c.LedgerGc != nil {
+		ledgerGc = *c.LedgerGc
+	}
+	openFilterTokenIndex := false
+	if c.OpenFilterTokenIndex != nil {
+		openFilterTokenIndex = *c.OpenFilterTokenIndex
+	}
+
 	return &config.Chain{
-		KafkaProducers: kafkaProducers,
-		OpenBlackBlock: c.OpenBlackBlock,
-		LedgerGcRetain: c.LedgerGcRetain,
-		LedgerGc:       c.LedgerGc,
+		KafkaProducers:       kafkaProducers,
+		OpenBlackBlock:       c.OpenBlackBlock,
+		LedgerGcRetain:       c.LedgerGcRetain,
+		LedgerGc:             ledgerGc,
+		OpenFilterTokenIndex: openFilterTokenIndex,
 	}
 }
 

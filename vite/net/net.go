@@ -25,10 +25,10 @@ type Config struct {
 	Verifier Verifier
 
 	// for topo
-	Topology     []string
-	Topic        string
-	Interval     int64 // second
-	TopoDisabled bool
+	Topology   []string
+	Topic      string
+	Interval   int64 // second
+	TopoEnable bool
 }
 
 const DefaultPort uint16 = 8484
@@ -68,7 +68,7 @@ func New(cfg *Config) Net {
 
 	broadcaster := newBroadcaster(peers)
 	filter := newFilter()
-	receiver := newReceiver(cfg.Verifier, broadcaster, filter)
+	receiver := newReceiver(cfg.Verifier, broadcaster, filter, nil)
 	syncer := newSyncer(cfg.Chain, peers, g, receiver)
 	fetcher := newFetcher(filter, peers, g)
 
@@ -105,7 +105,7 @@ func New(cfg *Config) Net {
 	})
 
 	// topo
-	if !cfg.TopoDisabled {
+	if cfg.TopoEnable {
 		n.topo = topo.New(&topo.Config{
 			Addrs:    cfg.Topology,
 			Interval: cfg.Interval,
@@ -142,6 +142,8 @@ func (n *net) addHandler(handler MsgHandler) {
 
 func (n *net) Start(svr p2p.Server) (err error) {
 	n.term = make(chan struct{})
+
+	n.receiver.p2p = svr
 
 	if err = n.fs.start(); err != nil {
 		return
