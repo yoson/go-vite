@@ -9,7 +9,7 @@
   ],
 
   "Port": 8483,
-  "RPCEnabled": true,
+  "RPCEnabled": false,
   "HttpHost": "0.0.0.0",
   "HttpPort": 48132,
   "WSEnabled": false,
