@@ -1,19 +1,21 @@
 package chain
 
 import (
-	"encoding/json"
 	"fmt"
+	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/vitelabs/go-vite/chain/cache"
+	"github.com/vitelabs/go-vite/chain/index"
 	"github.com/vitelabs/go-vite/chain/sender"
+	"github.com/vitelabs/go-vite/chain/trie_gc"
 	"github.com/vitelabs/go-vite/chain_db"
-	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/compress"
 	"github.com/vitelabs/go-vite/config"
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/log15"
 	"github.com/vitelabs/go-vite/trie"
 	"github.com/vitelabs/go-vite/vm_context"
-	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 )
 
@@ -29,23 +31,34 @@ type chain struct {
 
 	createAccountLock sync.Mutex
 
-	needSnapshotCache *NeedSnapshotCache
+	needSnapshotCache *chain_cache.NeedSnapshotCache
 
 	genesisSnapshotBlock *ledger.SnapshotBlock
 	latestSnapshotBlock  *ledger.SnapshotBlock
 
-	dataDir string
+	dataDir       string
+	ledgerDirName string
 
 	em *eventManager
 
 	cfg         *config.Chain
 	globalCfg   *config.Config
 	kafkaSender *sender.KafkaSender
+	trieGc      trie_gc.Collector
+
+	saveTrieLock sync.RWMutex
+
+	saveTrieStatus     uint8
+	saveTrieStatusLock sync.Mutex
+
+	saList *chain_cache.AdditionList
+	fti    *chain_index.FilterTokenIndex
 }
 
 func NewChain(cfg *config.Config) Chain {
 	chain := &chain{
 		log:                  log15.New("module", "chain"),
+		ledgerDirName:        "ledger",
 		genesisSnapshotBlock: &GenesisSnapshotBlock,
 		dataDir:              cfg.DataDir,
 		cfg:                  cfg.Chain,
@@ -56,10 +69,22 @@ func NewChain(cfg *config.Config) Chain {
 		chain.cfg = &config.Chain{}
 	}
 
+	if chain.cfg.OpenFilterTokenIndex {
+		var err error
+		chain.fti, err = chain_index.NewFilterTokenIndex(cfg, chain)
+		if err != nil {
+			chain.log.Crit("NewFilterTokenIndex failed, error is "+err.Error(), "method", "NewChain")
+			return nil
+		}
+	}
+
+	chain.needSnapshotCache = chain_cache.NewNeedSnapshotCache(chain)
 	chain.blackBlock = NewBlackBlock(chain, chain.cfg.OpenBlackBlock)
 
-	initGenesis(chain.readGenesis(cfg.GenesisFile))
+	// set ledger GenesisAccountAddress
+	ledger.GenesisAccountAddress = cfg.Genesis.GenesisAccountAddress
 
+	initGenesis(cfg.Genesis)
 	return chain
 }
 
@@ -74,11 +99,24 @@ func (c *chain) Init() {
 	c.em = newEventManager()
 
 	// chainDb
-	chainDb := chain_db.NewChainDb(filepath.Join(c.dataDir, "ledger"))
+	chainDb := chain_db.NewChainDb(filepath.Join(c.dataDir, c.ledgerDirName))
 	if chainDb == nil {
 		c.log.Crit("NewChain failed, db init failed", "method", "Init")
 	}
 	c.chainDb = chainDb
+
+	// cache
+	c.initCache()
+
+	// saList
+	var err error
+	c.saList, err = chain_cache.NewAdditionList(c)
+	if err != nil {
+		c.log.Crit("chain_cache.NewAdditionList failed, error is "+err.Error(), "method", "Init")
+	}
+
+	// trie gc
+	c.trieGc = trie_gc.NewCollector(c, c.cfg.LedgerGcRetain)
 
 	// compressor
 	compressor := compress.NewCompressor(c, c.dataDir)
@@ -99,7 +137,8 @@ func (c *chain) Init() {
 func (c *chain) KafkaSender() *sender.KafkaSender {
 	return c.kafkaSender
 }
-func (c *chain) checkAndInitData() {
+
+func (c *chain) checkData() bool {
 	sb := c.genesisSnapshotBlock
 	sb2 := SecondSnapshotBlock
 
@@ -109,15 +148,55 @@ func (c *chain) checkAndInitData() {
 	if err != nil || dbSb == nil || sb.Hash != dbSb.Hash ||
 		err2 != nil || dbSb2 == nil || sb2.Hash != dbSb2.Hash {
 		if err != nil {
-			c.log.Error("GetSnapshotBlockByHeight failed, error is "+err.Error(), "method", "CheckAndInitDb")
+			c.log.Crit("GetSnapshotBlockByHeight failed, error is "+err.Error(), "method", "CheckAndInitDb")
 		}
 
 		if err2 != nil {
-			c.log.Error("GetSnapshotBlockByHeight(2) failed, error is "+err.Error(), "method", "CheckAndInitDb")
+			c.log.Crit("GetSnapshotBlockByHeight(2) failed, error is "+err.Error(), "method", "CheckAndInitDb")
 		}
+		return false
+	}
 
+	result, err := c.checkForkPoints()
+	if err != nil {
+		c.log.Crit("checkForkPoints failed, error is "+err.Error(), "method", "CheckAndInitDb")
+	}
+	return result
+}
+
+func (c *chain) checkForkPoints() (bool, error) {
+	// check Vite1 upgrade
+	if c.globalCfg.ForkPoints == nil {
+		return true, nil
+	}
+
+	t := reflect.TypeOf(c.globalCfg.Genesis.ForkPoints).Elem()
+	v := reflect.ValueOf(c.globalCfg.Genesis.ForkPoints).Elem()
+
+	for k := 0; k < t.NumField(); k++ {
+		forkPoint := v.Field(k).Interface().(*config.ForkPoint)
+		if forkPoint.Hash != nil {
+			blockPoint, err := c.GetSnapshotBlockByHash(forkPoint.Hash)
+			if err != nil {
+				return false, err
+			}
+			if blockPoint == nil {
+				return false, nil
+			}
+		}
+	}
+
+	return true, nil
+}
+
+func (c *chain) checkAndInitData() {
+	if !c.checkData() {
+		// clear data
 		c.clearData()
+		// init data
 		c.initData()
+		// init cache
+		c.initCache()
 		return
 	}
 }
@@ -181,9 +260,21 @@ func (c *chain) initData() {
 	if err != nil {
 		c.log.Crit("WriteSnapshotBlock failed, error is "+err.Error(), "method", "initData")
 	}
+}
 
-	// rebuild cache
-	c.needSnapshotCache.Rebuild()
+func (c *chain) initCache() {
+	// latestSnapshotBlock
+	var getLatestBlockErr error
+	c.latestSnapshotBlock, getLatestBlockErr = c.chainDb.Sc.GetLatestBlock()
+	if getLatestBlockErr != nil {
+		c.log.Crit("GetLatestBlock failed, error is "+getLatestBlockErr.Error(), "method", "Start")
+	}
+
+	// needSnapshotCache
+	c.needSnapshotCache.Build()
+
+	// trieNodePool
+	c.trieNodePool = trie.NewTrieNodePool()
 }
 
 func (c *chain) Compressor() *compress.Compressor {
@@ -194,29 +285,23 @@ func (c *chain) ChainDb() *chain_db.ChainDb {
 	return c.chainDb
 }
 
+func (c *chain) SaList() *chain_cache.AdditionList {
+	return c.saList
+}
+
+func (c *chain) Fti() *chain_index.FilterTokenIndex {
+	return c.fti
+}
+
 func (c *chain) Start() {
+	// saList start
+	c.saList.Start()
+
 	// Start compress in the background
 	c.log.Info("Start chain module")
 
-	// needSnapshotCache
-	unconfirmedSubLedger, getSubLedgerErr := c.getUnConfirmedSubLedger()
-	if getSubLedgerErr != nil {
-		c.log.Crit("getUnConfirmedSubLedger failed, error is "+getSubLedgerErr.Error(), "method", "Start")
-	}
-	c.needSnapshotCache = NewNeedSnapshotContent(c, unconfirmedSubLedger)
-
 	// check
 	c.checkAndInitData()
-
-	// trieNodePool
-	c.trieNodePool = trie.NewTrieNodePool()
-
-	// latestSnapshotBlock
-	var getLatestBlockErr error
-	c.latestSnapshotBlock, getLatestBlockErr = c.chainDb.Sc.GetLatestBlock()
-	if getLatestBlockErr != nil {
-		c.log.Crit("GetLatestBlock failed, error is "+getLatestBlockErr.Error(), "method", "Start")
-	}
 
 	// start compressor
 	c.compressor.Start()
@@ -231,10 +316,34 @@ func (c *chain) Start() {
 		}
 	}
 
+	// trie gc
+	if c.cfg.LedgerGc {
+		c.trieGc.Start()
+	}
+
+	// start build filter token index
+	if c.fti != nil {
+		fmt.Printf("FilterTokenIndex is being initialized...\n")
+		c.fti.Start()
+		fmt.Printf("FilterTokenIndex initialization complete\n")
+	}
+
 	c.log.Info("Chain module started")
 }
 
 func (c *chain) Stop() {
+	// stop build filter token index
+	if c.fti != nil {
+		c.fti.Stop()
+	}
+
+	// saList top
+	c.saList.Stop()
+
+	// trie gc
+	if c.cfg.LedgerGc {
+		c.trieGc.Stop()
+	}
 	// Stop compress
 	c.log.Info("Stop chain module")
 
@@ -272,63 +381,10 @@ func (c *chain) Destroy() {
 
 	c.log.Info("Chain module destroyed")
 }
+func (c *chain) TrieGc() trie_gc.Collector {
+	return c.trieGc
+}
 
-func (c *chain) readGenesis(genesisPath string) *GenesisConfig {
-	defaultGenesisAccountAddress, _ := types.HexToAddress("vite_60e292f0ac471c73d914aeff10bb25925e13b2a9fddb6e6122")
-	var defaultBlockProducers []types.Address
-	addrStrList := []string{
-		"vite_0acbb1335822c8df4488f3eea6e9000eabb0f19d8802f57c87",
-		"vite_14edbc9214bd1e5f6082438f707d10bf43463a6d599a4f2d08",
-		"vite_1630f8c0cf5eda3ce64bd49a0523b826f67b19a33bc2a5dcfb",
-		"vite_1b1dfa00323aea69465366d839703547fec5359d6c795c8cef",
-		"vite_27a258dd1ed0ce0de3f4abd019adacd1b4b163b879389d3eca",
-		"vite_31a02e4f4b536e2d6d9bde23910cdffe72d3369ef6fe9b9239",
-		"vite_383fedcbd5e3f52196a4e8a1392ed3ddc4d4360e4da9b8494e",
-		"vite_41ba695ff63caafd5460dcf914387e95ca3a900f708ac91f06",
-		"vite_545c8e4c74e7bb6911165e34cbfb83bc513bde3623b342d988",
-		"vite_5a1b5ece654138d035bdd9873c1892fb5817548aac2072992e",
-		"vite_70cfd586185e552635d11f398232344f97fc524fa15952006d",
-		"vite_76df2a0560694933d764497e1b9b11f9ffa1524b170f55dda0",
-		"vite_7b76ca2433c7ddb5a5fa315ca861e861d432b8b05232526767",
-		"vite_7caaee1d51abad4047a58f629f3e8e591247250dad8525998a",
-		"vite_826a1ab4c85062b239879544dc6b67e3b5ce32d0a1eba21461",
-		"vite_89007189ad81c6ee5cdcdc2600a0f0b6846e0a1aa9a58e5410",
-		"vite_9abcb7324b8d9029e4f9effe76f7336bfd28ed33cb5b877c8d",
-		"vite_af60cf485b6cc2280a12faac6beccfef149597ea518696dcf3",
-		"vite_c1090802f735dfc279a6c24aacff0e3e4c727934e547c24e5e",
-		"vite_c10ae7a14649800b85a7eaaa8bd98c99388712412b41908cc0",
-		"vite_d45ac37f6fcdb1c362a33abae4a7d324a028aa49aeea7e01cb",
-		"vite_d8974670af8e1f3c4378d01d457be640c58644bc0fa87e3c30",
-		"vite_e289d98f33c3ef5f1b41048c2cb8b389142f033d1df9383818",
-		"vite_f53dcf7d40b582cd4b806d2579c6dd7b0b131b96c2b2ab5218",
-		"vite_fac06662d84a7bea269265e78ea2d9151921ba2fae97595608",
-	}
-
-	for _, addrStr := range addrStrList {
-		addr, _ := types.HexToAddress(addrStr)
-		defaultBlockProducers = append(defaultBlockProducers, addr)
-	}
-
-	config := &GenesisConfig{
-		GenesisAccountAddress: defaultGenesisAccountAddress,
-		BlockProducers:        defaultBlockProducers,
-	}
-
-	if len(genesisPath) > 0 {
-		file, err := os.Open(genesisPath)
-		if err != nil {
-			c.log.Crit(fmt.Sprintf("Failed to read genesis file: %v", err), "method", "readGenesis")
-		}
-		defer file.Close()
-
-		config = new(GenesisConfig)
-		if err := json.NewDecoder(file).Decode(config); err != nil {
-			c.log.Crit(fmt.Sprintf("invalid genesis file: %v", err), "method", "readGenesis")
-		}
-	}
-
-	// hack, will be fix
-	ledger.GenesisAccountAddress = config.GenesisAccountAddress
-
-	return config
+func (c *chain) TrieDb() *leveldb.DB {
+	return c.ChainDb().Db()
 }

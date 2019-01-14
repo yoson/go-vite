@@ -1,7 +1,6 @@
 package chain
 
 import (
-	"bytes"
 	"github.com/vitelabs/go-vite/vm/contracts/abi"
 	"math/big"
 
@@ -16,6 +15,18 @@ func (c *chain) GetContractGidByAccountBlock(block *ledger.AccountBlock) (*types
 		return nil, nil
 	}
 
+	if block.Height == 1 {
+		if types.IsPrecompiledContractAddress(block.AccountAddress) {
+			return &types.DELEGATE_GID, nil
+		}
+
+		fromBlock, err := c.GetAccountBlockByHash(&block.FromBlockHash)
+		if err != nil {
+			return nil, err
+		}
+
+		return c.chainDb.Ac.GetContractGidFromSendCreateBlock(fromBlock)
+	}
 	return c.GetContractGid(&block.AccountAddress)
 }
 
@@ -25,11 +36,7 @@ func (c *chain) GetContractGid(addr *types.Address) (*types.Gid, error) {
 		return nil, nil
 	}
 
-	if bytes.Equal(addr.Bytes(), abi.AddressRegister.Bytes()) ||
-		bytes.Equal(addr.Bytes(), abi.AddressVote.Bytes()) ||
-		bytes.Equal(addr.Bytes(), abi.AddressPledge.Bytes()) ||
-		bytes.Equal(addr.Bytes(), abi.AddressConsensusGroup.Bytes()) ||
-		bytes.Equal(addr.Bytes(), abi.AddressMintage.Bytes()) {
+	if types.IsPrecompiledContractAddress(*addr) {
 		return &types.DELEGATE_GID, nil
 	}
 
@@ -68,7 +75,10 @@ func (c *chain) GetPledgeQuotas(snapshotHash types.Hash, beneficialList []types.
 			return nil, err
 		}
 		pledgeAmount := abi.GetPledgeBeneficialAmount(pledgeDb, addr)
-		quotas[addr] = quota.GetPledgeQuota(balanceDb, addr, pledgeAmount)
+		quotas[addr], err = quota.GetPledgeQuota(balanceDb, addr, pledgeAmount)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return quotas, nil
 }
@@ -79,7 +89,7 @@ func (c *chain) GetPledgeQuota(snapshotHash types.Hash, beneficial types.Address
 		return 0, err
 	}
 	pledgeAmount := abi.GetPledgeBeneficialAmount(vmContext, beneficial)
-	return quota.GetPledgeQuota(vmContext, beneficial, pledgeAmount), nil
+	return quota.GetPledgeQuota(vmContext, beneficial, pledgeAmount)
 }
 
 func (c *chain) GetRegisterList(snapshotHash types.Hash, gid types.Gid) ([]*types.Registration, error) {
@@ -133,7 +143,7 @@ func (c *chain) GetBalanceList(snapshotHash types.Hash, tokenTypeId types.TokenT
 }
 
 func (c *chain) GetTokenInfoById(tokenId *types.TokenTypeId) (*types.TokenInfo, error) {
-	vmContext, err := vm_context.NewVmContext(c, nil, nil, &abi.AddressMintage)
+	vmContext, err := vm_context.NewVmContext(c, nil, nil, &types.AddressMintage)
 	if err != nil {
 		c.log.Error("NewVmContext failed, error is "+err.Error(), "method", "GetTokenInfoById")
 		return nil, err

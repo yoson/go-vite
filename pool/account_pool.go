@@ -345,7 +345,7 @@ func (self *accountPool) verifyFail(b *accountPoolBlock) error {
 	if b.fail {
 		if !b.delStat.inc() {
 			self.log.Warn("account block delete.", "hash", b.Hash(), "height", b.Height())
-			self.deleteBlock(b)
+			self.CurrentModifyToEmpty()
 		}
 	} else {
 		if !b.failStat.inc() {
@@ -402,7 +402,7 @@ func genBlocks(cp *chainPool, bs []*accountPoolBlock) ([]commonBlock, *forkedCha
 				if err != nil {
 					return nil, nil, err
 				}
-				newChain.addHead(tmp)
+				newChain.addHead(b)
 			}
 		}
 		result = append(result, b)

@@ -3,11 +3,12 @@ package chain
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/log15"
 	"github.com/vitelabs/go-vite/vm_context"
-	"path/filepath"
 )
 
 type blackBlock struct {
@@ -92,12 +93,12 @@ func (bb *blackBlock) DeleteSnapshotBlock(snapshotBlocks []*ledger.SnapshotBlock
 	if !bb.chain.CheckNeedSnapshotCache(bb.chain.GetNeedSnapshotContent()) {
 		bb.log.Error("check failed!!!")
 
-		unconfirmedSubLedger, getSubLedgerErr := bb.chain.getUnConfirmedSubLedger()
+		unconfirmedSubLedger, getSubLedgerErr := bb.chain.GetUnConfirmedSubLedger()
 		if getSubLedgerErr != nil {
 			bb.log.Crit("getUnConfirmedSubLedger failed, error is "+getSubLedgerErr.Error(), "method", "printCorrectCacheMap")
 		}
 		for addr, blocks := range unconfirmedSubLedger {
-			bb.log.Info(fmt.Sprintf("%s: %d %s", addr, blocks[0].Height, blocks[0].Hash), "method", "DeleteSnapshotBlock.correctNeedSnapshotCache")
+			bb.log.Info(fmt.Sprintf("%s: %d %s", addr, blocks[len(blocks)-1].Height, blocks[len(blocks)-1].Hash), "method", "DeleteSnapshotBlock.correctNeedSnapshotCache")
 		}
 	}
 	bb.log.Info("DeleteSnapshotBlock finish")

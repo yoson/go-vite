@@ -16,7 +16,6 @@ import (
 	"github.com/vitelabs/go-vite/vm_context"
 	"github.com/vitelabs/go-vite/wallet"
 	"github.com/vitelabs/go-vite/wallet/entropystore"
-	"github.com/vitelabs/go-vite/wallet/walleterrors"
 )
 
 var (
@@ -249,8 +248,8 @@ func (manager *Manager) StartAutoReceiveWorker(entropystore string, addr types.A
 		return e
 	}
 
-	if !entropyStoreManager.IsAddrUnlocked(addr) {
-		return walleterrors.ErrLocked
+	if _, _, e = entropyStoreManager.FindAddr(addr); e != nil {
+		return e
 	}
 
 	w, found := manager.autoReceiveWorkers[addr]
@@ -259,6 +258,7 @@ func (manager *Manager) StartAutoReceiveWorker(entropystore string, addr types.A
 		manager.log.Info("Manager get event new Worker")
 		manager.autoReceiveWorkers[addr] = w
 	}
+	w.ResetPowDifficulty(powDifficulty)
 	w.ResetAutoReceiveFilter(filter)
 	w.Start()
 	return nil

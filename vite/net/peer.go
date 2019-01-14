@@ -2,6 +2,11 @@ package net
 
 import (
 	"fmt"
+	net2 "net"
+	"sort"
+	"strconv"
+	"sync"
+
 	"github.com/pkg/errors"
 	"github.com/seiflotfy/cuckoofilter"
 	"github.com/vitelabs/go-vite/common"
@@ -10,11 +15,6 @@ import (
 	"github.com/vitelabs/go-vite/log15"
 	"github.com/vitelabs/go-vite/p2p"
 	"github.com/vitelabs/go-vite/vite/net/message"
-	net2 "net"
-	"sort"
-	"strconv"
-	"sync"
-	"time"
 )
 
 const filterCap = 100000
@@ -36,24 +36,28 @@ type Peer interface {
 	Report(err error)
 	ID() string
 	Height() uint64
+	Disconnect(reason p2p.DiscReason)
 }
 
 const peerMsgConcurrency = 10
 
 type peer struct {
 	*p2p.Peer
-	mrw         *p2p.ProtoFrame
-	id          string
-	head        types.Hash // hash of the top snapshotblock in snapshotchain
-	height      uint64     // height of the snapshotchain
-	filePort    uint16     // fileServer port, for request file
-	CmdSet      p2p.CmdSet // which cmdSet it belongs
+	mrw      *p2p.ProtoFrame
+	id       string
+	head     types.Hash // hash of the top snapshotblock in snapshotchain
+	height   uint64     // height of the snapshotchain
+	filePort uint16     // fileServer port, for request file
+	CmdSet   p2p.CmdSet // which cmdSet it belongs
+
+	mu          sync.RWMutex
 	KnownBlocks *cuckoofilter.CuckooFilter
-	log         log15.Logger
-	errChan     chan error
-	term        chan struct{}
-	msgHandled  map[ViteCmd]uint64 // message statistic
-	wg          sync.WaitGroup
+
+	log        log15.Logger
+	errChan    chan error
+	term       chan struct{}
+	msgHandled map[ViteCmd]uint64 // message statistic
+	wg         sync.WaitGroup
 }
 
 func (p *peer) Height() uint64 {
@@ -148,7 +152,9 @@ func (p *peer) SetHead(head types.Hash, height uint64) {
 }
 
 func (p *peer) SeeBlock(hash types.Hash) {
+	p.mu.Lock()
 	p.KnownBlocks.InsertUnique(hash[:])
+	p.mu.Unlock()
 }
 
 // send
@@ -202,19 +208,19 @@ func (p *peer) Send(code ViteCmd, msgId uint64, payload p2p.Serializable) (err e
 }
 
 type PeerInfo struct {
-	ID                 string            `json:"id"`
-	Addr               string            `json:"addr"`
-	Head               string            `json:"head"`
-	Height             uint64            `json:"height"`
-	MsgReceived        uint64            `json:"msgReceived"`
-	MsgHandled         uint64            `json:"msgHandled"`
-	MsgSend            uint64            `json:"msgSend"`
-	MsgDiscarded       uint64            `json:"msgDiscarded"`
-	MsgReceivedDetail  map[string]uint64 `json:"msgReceived"`
-	MsgDiscardedDetail map[string]uint64 `json:"msgDiscarded"`
-	MsgHandledDetail   map[string]uint64 `json:"msgHandledDetail"`
-	MsgSendDetail      map[string]uint64 `json:"msgSendDetail"`
-	Uptime             time.Duration     `json:"uptime"`
+	ID     string `json:"id"`
+	Addr   string `json:"addr"`
+	Head   string `json:"head"`
+	Height uint64 `json:"height"`
+	// MsgReceived        uint64            `json:"msgReceived"`
+	// MsgHandled         uint64            `json:"msgHandled"`
+	// MsgSend            uint64            `json:"msgSend"`
+	// MsgDiscarded       uint64            `json:"msgDiscarded"`
+	// MsgReceivedDetail  map[string]uint64 `json:"msgReceived"`
+	// MsgDiscardedDetail map[string]uint64 `json:"msgDiscarded"`
+	// MsgHandledDetail   map[string]uint64 `json:"msgHandledDetail"`
+	// MsgSendDetail      map[string]uint64 `json:"msgSendDetail"`
+	Created string `json:"created"`
 }
 
 func (p *PeerInfo) String() string {
@@ -222,45 +228,45 @@ func (p *PeerInfo) String() string {
 }
 
 func (p *peer) Info() *PeerInfo {
-	var handled, send, received, discard uint64
-	handMap := make(map[string]uint64, len(p.msgHandled))
-	for cmd, num := range p.msgHandled {
-		handMap[cmd.String()] = num
-		handled += num
-	}
-
-	sendMap := make(map[string]uint64, len(p.mrw.Send))
-	for code, num := range p.mrw.Send {
-		sendMap[ViteCmd(code).String()] = num
-		send += num
-	}
-
-	recMap := make(map[string]uint64, len(p.mrw.Received))
-	for code, num := range p.mrw.Received {
-		recMap[ViteCmd(code).String()] = num
-		received += num
-	}
-
-	discMap := make(map[string]uint64, len(p.mrw.Discarded))
-	for code, num := range p.mrw.Discarded {
-		discMap[ViteCmd(code).String()] = num
-		discard += num
-	}
+	// var handled, send, received, discard uint64
+	// handMap := make(map[string]uint64, len(p.msgHandled))
+	// for cmd, num := range p.msgHandled {
+	// 	handMap[cmd.String()] = num
+	// 	handled += num
+	// }
+	//
+	// sendMap := make(map[string]uint64, len(p.mrw.Send))
+	// for code, num := range p.mrw.Send {
+	// 	sendMap[ViteCmd(code).String()] = num
+	// 	send += num
+	// }
+	//
+	// recMap := make(map[string]uint64, len(p.mrw.Received))
+	// for code, num := range p.mrw.Received {
+	// 	recMap[ViteCmd(code).String()] = num
+	// 	received += num
+	// }
+	//
+	// discMap := make(map[string]uint64, len(p.mrw.Discarded))
+	// for code, num := range p.mrw.Discarded {
+	// 	discMap[ViteCmd(code).String()] = num
+	// 	discard += num
+	// }
 
 	return &PeerInfo{
-		ID:                 p.id,
-		Addr:               p.RemoteAddr().String(),
-		Head:               p.head.String(),
-		Height:             p.height,
-		MsgReceived:        received,
-		MsgHandled:         handled,
-		MsgSend:            send,
-		MsgDiscarded:       discard,
-		MsgReceivedDetail:  recMap,
-		MsgDiscardedDetail: discMap,
-		MsgHandledDetail:   handMap,
-		MsgSendDetail:      sendMap,
-		Uptime:             time.Now().Sub(p.Created),
+		ID:     p.id,
+		Addr:   p.RemoteAddr().String(),
+		Head:   p.head.String(),
+		Height: p.height,
+		// MsgReceived:        received,
+		// MsgHandled:         handled,
+		// MsgSend:            send,
+		// MsgDiscarded:       discard,
+		// MsgReceivedDetail:  recMap,
+		// MsgDiscardedDetail: discMap,
+		// MsgHandledDetail:   handMap,
+		// MsgSendDetail:      sendMap,
+		Created: p.Created.Format("2006-01-02 15:04:05"),
 	}
 }
 
@@ -425,12 +431,14 @@ func (m *peerSet) UnknownBlock(hash types.Hash) (peers []*peer) {
 	peers = make([]*peer, len(m.peers))
 
 	i := 0
-	for _, peer := range m.peers {
-		if !peer.KnownBlocks.Lookup(hash[:]) {
-			peers[i] = peer
+	for _, p := range m.peers {
+		p.mu.RLock()
+		seen := p.KnownBlocks.Lookup(hash[:])
+		p.mu.RUnlock()
+
+		if !seen {
+			peers[i] = p
 			i++
-		} else {
-			peer.log.Debug(fmt.Sprintf("peer %s has seen block %s", peer.RemoteAddr(), hash))
 		}
 	}
 
@@ -450,6 +458,14 @@ func (m *peerSet) Peers() (peers []*peer) {
 	}
 
 	return
+}
+
+func (m *peerSet) Has(id string) bool {
+	m.rw.Lock()
+	defer m.rw.Unlock()
+
+	_, ok := m.peers[id]
+	return ok
 }
 
 // @implementation sort.Interface

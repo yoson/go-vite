@@ -35,6 +35,7 @@ type ParamMintage struct {
 	Decimals    uint8
 }
 
+// TODO no left pad
 func GetMintageKey(tokenId types.TokenTypeId) []byte {
 	return helper.LeftPadBytes(tokenId.Bytes(), types.HashSize)
 }
@@ -52,7 +53,7 @@ func NewTokenId(accountAddress types.Address, accountBlockHeight uint64, prevBlo
 }
 
 func GetTokenById(db StorageDatabase, tokenId types.TokenTypeId) *types.TokenInfo {
-	data := db.GetStorageBySnapshotHash(&AddressMintage, GetMintageKey(tokenId), nil)
+	data := db.GetStorageBySnapshotHash(&types.AddressMintage, GetMintageKey(tokenId), nil)
 	if len(data) > 0 {
 		tokenInfo := new(types.TokenInfo)
 		ABIMintage.UnpackVariable(tokenInfo, VariableNameMintage, data)
@@ -63,7 +64,7 @@ func GetTokenById(db StorageDatabase, tokenId types.TokenTypeId) *types.TokenInf
 
 func GetTokenMap(db StorageDatabase) map[types.TokenTypeId]*types.TokenInfo {
 	defer monitor.LogTime("vm", "GetTokenMap", time.Now())
-	iterator := db.NewStorageIteratorBySnapshotHash(&AddressMintage, nil, nil)
+	iterator := db.NewStorageIteratorBySnapshotHash(&types.AddressMintage, nil, nil)
 	tokenInfoMap := make(map[types.TokenTypeId]*types.TokenInfo)
 	if iterator == nil {
 		return tokenInfoMap

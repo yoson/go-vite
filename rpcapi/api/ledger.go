@@ -1,24 +1,36 @@
 package api
 
 import (
+	"strconv"
+
 	"github.com/pkg/errors"
 	"github.com/vitelabs/go-vite/chain"
+	"github.com/vitelabs/go-vite/chain/trie_gc"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/generator"
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/log15"
 	"github.com/vitelabs/go-vite/vite"
-	"strconv"
 )
 
 // !!! Block = Transaction = TX
 
 func NewLedgerApi(vite *vite.Vite) *LedgerApi {
-	return &LedgerApi{
+	api := &LedgerApi{
 		chain: vite.Chain(),
 		//signer:        vite.Signer(),
 		log: log15.New("module", "rpc_api/ledger_api"),
 	}
+
+	return api
+}
+
+type GcStatus struct {
+	Code        uint8  `json:"code"`
+	Description string `json:"description"`
+
+	ClearedHeight uint64 `json:"clearedHeight"`
+	MarkedHeight  uint64 `json:"markedHeight"`
 }
 
 type LedgerApi struct {
@@ -78,6 +90,39 @@ func (l *LedgerApi) GetBlocksByHash(addr types.Address, originBlockHash *types.H
 
 }
 
+func (l *LedgerApi) GetBlocksByHashInToken(addr types.Address, originBlockHash *types.Hash, tokenTypeId types.TokenTypeId, count uint64) ([]*AccountBlock, error) {
+	l.log.Info("GetBlocksByHashInToken")
+	fti := l.chain.Fti()
+	if fti == nil {
+		err := errors.New("config.OpenFilterTokenIndex is false, api can't work")
+		return nil, err
+	}
+
+	account, err := l.chain.GetAccount(&addr)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil {
+		return nil, nil
+	}
+
+	hashList, err := fti.GetBlockHashList(account, originBlockHash, tokenTypeId, count)
+	if err != nil {
+		return nil, err
+	}
+
+	blockList := make([]*ledger.AccountBlock, len(hashList))
+	for index, blockHash := range hashList {
+		block, err := l.chain.GetAccountBlockByHash(&blockHash)
+		if err != nil {
+			return nil, err
+		}
+
+		blockList[index] = block
+	}
+	return l.ledgerBlocksToRpcBlocks(blockList)
+}
+
 type Statistics struct {
 	SnapshotBlockCount uint64 `json:"snapshotBlockCount"`
 	AccountBlockCount  uint64 `json:"accountBlockCount"`
@@ -99,6 +144,40 @@ func (l *LedgerApi) GetStatistics() (*Statistics, error) {
 		SnapshotBlockCount: latestSnapshotBlock.Height,
 		AccountBlockCount:  accountBlockCount,
 	}, nil
+}
+
+func (l *LedgerApi) GetVmLogListByHash(logHash types.Hash) (ledger.VmLogList, error) {
+	logList, err := l.chain.GetVmLogList(&logHash)
+	if err != nil {
+		l.log.Error("GetVmLogList failed, error is "+err.Error(), "method", "GetVmLogListByHash")
+		return nil, err
+	}
+	return logList, err
+}
+
+func (l *LedgerApi) GetBlocksByHeight(addr types.Address, height uint64, count uint64, forward bool) ([]*AccountBlock, error) {
+	accountBlocks, err := l.chain.GetAccountBlocksByHeight(addr, height, count, forward)
+	if err != nil {
+		l.log.Error("GetAccountBlocksByHeight failed, error is "+err.Error(), "method", "GetBlocksByHeight")
+		return nil, err
+	}
+	if len(accountBlocks) <= 0 {
+		return nil, nil
+	}
+	return l.ledgerBlocksToRpcBlocks(accountBlocks)
+}
+
+func (l *LedgerApi) GetBlockByHeight(addr types.Address, height uint64) (*AccountBlock, error) {
+	accountBlock, err := l.chain.GetAccountBlockByHeight(&addr, height)
+	if err != nil {
+		l.log.Error("GetAccountBlockByHeight failed, error is "+err.Error(), "method", "GetBlockByHeight")
+		return nil, err
+	}
+
+	if accountBlock == nil {
+		return nil, nil
+	}
+	return l.ledgerBlockToRpcBlock(accountBlock)
 }
 
 func (l *LedgerApi) GetBlocksByAccAddr(addr types.Address, index int, count int) ([]*AccountBlock, error) {
@@ -248,9 +327,43 @@ func (l *LedgerApi) GetBlockMeta(hash *types.Hash) (*ledger.AccountBlockMeta, er
 	return l.chain.GetAccountBlockMetaByHash(hash)
 }
 
-func (l *LedgerApi) GetFittestSnapshotHash() (*types.Hash, error) {
-	//latestBlock := l.chain.GetLatestSnapshotBlock()
-	return generator.GetFitestGeneratorSnapshotHash(l.chain, nil)
+func (l *LedgerApi) GetFittestSnapshotHash(accAddr *types.Address, sendBlockHash *types.Hash) (*types.Hash, error) {
+	if accAddr == nil && sendBlockHash == nil {
+		latestBlock := l.chain.GetLatestSnapshotBlock()
+		if latestBlock != nil {
+			return &latestBlock.Hash, nil
+		}
+		return nil, generator.ErrGetFittestSnapshotBlockFailed
+	}
+	var referredList []types.Hash
+	if sendBlockHash != nil {
+		sendBlock, _ := l.chain.GetAccountBlockByHash(sendBlockHash)
+		if sendBlock == nil {
+			return nil, generator.ErrGetSnapshotOfReferredBlockFailed
+		}
+		referredList = append(referredList, sendBlock.SnapshotHash)
+	}
+
+	prevHash, fittestHash, err := generator.GetFittestGeneratorSnapshotHash(l.chain, accAddr, referredList, false)
+	if err != nil {
+		return nil, err
+	}
+	if prevHash == nil {
+		return fittestHash, nil
+	}
+	prevQuota, err := l.chain.GetPledgeQuota(*prevHash, *accAddr)
+	if err != nil {
+		return nil, err
+	}
+	fittestQuota, err := l.chain.GetPledgeQuota(*fittestHash, *accAddr)
+	if err != nil {
+		return nil, err
+	}
+	if prevQuota <= fittestQuota {
+		return fittestHash, nil
+	} else {
+		return prevHash, nil
+	}
 
 	//gap := uint64(0)
 	//targetHeight := latestBlock.Height
@@ -315,4 +428,21 @@ func (l *LedgerApi) GetVmLogList(blockHash types.Hash) (ledger.VmLogList, error)
 func (l *LedgerApi) DeleteToHeight(height uint64) (uint64, error) {
 	sbs, _, err := l.chain.DeleteSnapshotBlocksToHeight(height)
 	return uint64(len(sbs)), err
+}
+
+func (l *LedgerApi) GetGcStatus() *GcStatus {
+	statusCode := l.chain.TrieGc().Status()
+
+	gStatus := &GcStatus{
+		Code: statusCode,
+	}
+	switch statusCode {
+	case trie_gc.STATUS_STOPPED:
+		gStatus.Description = "STATUS_STOPPED"
+	case trie_gc.STATUS_STARTED:
+		gStatus.Description = "STATUS_STARTED"
+	case trie_gc.STATUS_MARKING_AND_CLEANING:
+		gStatus.Description = "STATUS_MARKING_AND_CLEANING"
+	}
+	return gStatus
 }

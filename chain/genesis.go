@@ -9,16 +9,13 @@ import (
 
 	"github.com/vitelabs/go-vite/common/helper"
 	"github.com/vitelabs/go-vite/common/types"
+	"github.com/vitelabs/go-vite/config"
 	"github.com/vitelabs/go-vite/ledger"
+	"github.com/vitelabs/go-vite/log15"
 	"github.com/vitelabs/go-vite/trie"
 	"github.com/vitelabs/go-vite/vm_context"
 	"github.com/vitelabs/go-vite/vm_context/vmctxt_interface"
 )
-
-type GenesisConfig struct {
-	GenesisAccountAddress types.Address   `json:"genesisAccountAddress"`
-	BlockProducers        []types.Address `json:"blockProducers"`
-}
 
 var GenesisSnapshotBlock ledger.SnapshotBlock
 var SecondSnapshotBlock ledger.SnapshotBlock
@@ -35,7 +32,7 @@ var GenesisConsensusGroupBlockVC vmctxt_interface.VmDatabase
 var GenesisRegisterBlock ledger.AccountBlock
 var GenesisRegisterBlockVC vmctxt_interface.VmDatabase
 
-func initGenesis(config *GenesisConfig) {
+func initGenesis(config *config.Genesis) {
 	GenesisSnapshotBlock = genesisSnapshotBlock()
 
 	GenesisMintageBlock, GenesisMintageBlockVC = genesisMintageBlock(config)
@@ -107,12 +104,12 @@ func secondSnapshotBlock() ledger.SnapshotBlock {
 
 var totalSupply = new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1e9))
 
-func genesisMintageBlock(config *GenesisConfig) (ledger.AccountBlock, vmctxt_interface.VmDatabase) {
+func genesisMintageBlock(config *config.Genesis) (ledger.AccountBlock, vmctxt_interface.VmDatabase) {
 	timestamp := genesisTimestamp.Add(time.Second * 10)
 	block := ledger.AccountBlock{
 		BlockType:      ledger.BlockTypeReceive,
 		Height:         1,
-		AccountAddress: abi.AddressMintage,
+		AccountAddress: types.AddressMintage,
 		Amount:         big.NewInt(0),
 		Fee:            big.NewInt(0),
 
@@ -134,13 +131,13 @@ func genesisMintageBlock(config *GenesisConfig) (ledger.AccountBlock, vmctxt_int
 	return block, vmContext
 }
 
-func genesisMintageSendBlock(config *GenesisConfig) (ledger.AccountBlock, vmctxt_interface.VmDatabase) {
+func genesisMintageSendBlock(config *config.Genesis) (ledger.AccountBlock, vmctxt_interface.VmDatabase) {
 	timestamp := genesisTimestamp.Add(time.Second * 12)
 	block := ledger.AccountBlock{
 		BlockType:      ledger.BlockTypeSendReward,
 		PrevHash:       GenesisMintageBlock.Hash,
 		Height:         2,
-		AccountAddress: abi.AddressMintage,
+		AccountAddress: types.AddressMintage,
 		ToAddress:      config.GenesisAccountAddress,
 		Amount:         totalSupply,
 		TokenId:        ledger.ViteTokenId,
@@ -154,13 +151,51 @@ func genesisMintageSendBlock(config *GenesisConfig) (ledger.AccountBlock, vmctxt
 	return block, GenesisMintageBlockVC.CopyAndFreeze()
 }
 
-func genesisConsensusGroupBlock(config *GenesisConfig) (ledger.AccountBlock, vmctxt_interface.VmDatabase) {
+func getConsensusGroupData(consensusGroupConfig *config.ConsensusGroupInfo) ([]byte, error) {
+
+	conditionRegisterData, err := abi.ABIConsensusGroup.PackVariable(abi.VariableNameConditionRegisterOfPledge,
+		consensusGroupConfig.RegisterConditionParam.PledgeAmount,
+		consensusGroupConfig.RegisterConditionParam.PledgeToken,
+		consensusGroupConfig.RegisterConditionParam.PledgeHeight)
+
+	if err != nil {
+		return nil, err
+	}
+
+	voteConditionData := []byte{}
+
+	if consensusGroupConfig.VoteConditionId > 1 {
+		voteConditionData, err = abi.ABIConsensusGroup.PackVariable(abi.VariableNameConditionVoteOfKeepToken,
+			consensusGroupConfig.VoteConditionParam.Amount,
+			consensusGroupConfig.VoteConditionParam.TokenId)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return abi.ABIConsensusGroup.PackVariable(abi.VariableNameConsensusGroupInfo,
+		consensusGroupConfig.NodeCount,
+		consensusGroupConfig.Interval,
+		consensusGroupConfig.PerCount,
+		consensusGroupConfig.RandCount,
+		consensusGroupConfig.RandRank,
+		consensusGroupConfig.CountingTokenId,
+		consensusGroupConfig.RegisterConditionId,
+		conditionRegisterData,
+		consensusGroupConfig.VoteConditionId,
+		voteConditionData,
+		consensusGroupConfig.Owner,
+		consensusGroupConfig.PledgeAmount,
+		consensusGroupConfig.WithdrawHeight)
+}
+
+func genesisConsensusGroupBlock(config *config.Genesis) (ledger.AccountBlock, vmctxt_interface.VmDatabase) {
 	timestamp := genesisTimestamp.Add(time.Second * 10)
 
 	block := ledger.AccountBlock{
 		BlockType:      ledger.BlockTypeReceive,
 		Height:         1,
-		AccountAddress: abi.AddressConsensusGroup,
+		AccountAddress: types.AddressConsensusGroup,
 		Amount:         big.NewInt(0),
 		Fee:            big.NewInt(0),
 
@@ -168,37 +203,14 @@ func genesisConsensusGroupBlock(config *GenesisConfig) (ledger.AccountBlock, vmc
 		Timestamp:    &timestamp,
 	}
 
-	conditionRegisterData, _ := abi.ABIConsensusGroup.PackVariable(abi.VariableNameConditionRegisterOfPledge, new(big.Int).Mul(big.NewInt(5e5), big.NewInt(1e18)), ledger.ViteTokenId, uint64(3600*24*90))
-
-	snapshotConsensusGroupData, _ := abi.ABIConsensusGroup.PackVariable(abi.VariableNameConsensusGroupInfo,
-		uint8(25),
-		int64(1),
-		int64(3),
-		uint8(2),
-		uint8(100),
-		ledger.ViteTokenId,
-		uint8(1),
-		conditionRegisterData,
-		uint8(1),
-		[]byte{},
-		config.GenesisAccountAddress,
-		big.NewInt(0),
-		uint64(1))
-
-	commonConsensusGroupData, _ := abi.ABIConsensusGroup.PackVariable(abi.VariableNameConsensusGroupInfo,
-		uint8(25),
-		int64(3),
-		int64(1),
-		uint8(2),
-		uint8(100),
-		ledger.ViteTokenId,
-		uint8(1),
-		conditionRegisterData,
-		uint8(1),
-		[]byte{},
-		config.GenesisAccountAddress,
-		big.NewInt(0),
-		uint64(1))
+	snapshotConsensusGroupData, err := getConsensusGroupData(config.SnapshotConsensusGroup)
+	if err != nil {
+		log15.Crit("Init snapshot consensus group information failed, error is "+err.Error(), "module", "genesis")
+	}
+	commonConsensusGroupData, err := getConsensusGroupData(config.CommonConsensusGroup)
+	if err != nil {
+		log15.Crit("Init common consensus group information failed, error is "+err.Error(), "module", "genesis")
+	}
 
 	vmContext := vm_context.NewEmptyVmContextByTrie(trie.NewTrie(nil, nil, genesisTrieNodePool))
 	vmContext.SetStorage(abi.GetConsensusGroupKey(types.SNAPSHOT_GID), snapshotConsensusGroupData)
@@ -210,13 +222,13 @@ func genesisConsensusGroupBlock(config *GenesisConfig) (ledger.AccountBlock, vmc
 	return block, vmContext
 }
 
-func genesisRegisterBlock(config *GenesisConfig) (ledger.AccountBlock, vmctxt_interface.VmDatabase) {
+func genesisRegisterBlock(config *config.Genesis) (ledger.AccountBlock, vmctxt_interface.VmDatabase) {
 	timestamp := genesisTimestamp.Add(time.Second * 10)
 
 	block := ledger.AccountBlock{
 		BlockType:      ledger.BlockTypeReceive,
 		Height:         1,
-		AccountAddress: abi.AddressRegister,
+		AccountAddress: types.AddressRegister,
 		Amount:         big.NewInt(0),
 		Fee:            big.NewInt(0),
 

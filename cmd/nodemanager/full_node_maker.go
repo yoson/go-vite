@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	"github.com/vitelabs/go-vite/cmd/utils"
@@ -18,10 +19,13 @@ var defaultNodeConfigFileName = "node_config.json"
 type FullNodeMaker struct {
 }
 
-func (maker FullNodeMaker) MakeNode(ctx *cli.Context) *node.Node {
+func (maker FullNodeMaker) MakeNode(ctx *cli.Context) (*node.Node, error) {
 
 	// 1: Make Node.Config
-	nodeConfig := maker.MakeNodeConfig(ctx)
+	nodeConfig, err := maker.MakeNodeConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
 	log.Info(fmt.Sprintf("NodeConfig info: %v", nodeConfig))
 	// 2: New Node
 	node, err := node.New(nodeConfig)
@@ -29,17 +33,21 @@ func (maker FullNodeMaker) MakeNode(ctx *cli.Context) *node.Node {
 
 	if err != nil {
 		log.Error("Failed to create the node: %v", err)
+		return nil, err
 	}
-	return node
+	return node, nil
 }
 
-func (maker FullNodeMaker) MakeNodeConfig(ctx *cli.Context) *node.Config {
+func (maker FullNodeMaker) MakeNodeConfig(ctx *cli.Context) (*node.Config, error) {
 
 	cfg := node.DefaultNodeConfig
 	log.Info(fmt.Sprintf("DefaultNodeconfig: %v", cfg))
 
 	// 1: Load config file.
-	loadNodeConfigFromFile(ctx, &cfg)
+	err := loadNodeConfigFromFile(ctx, &cfg)
+	if err != nil {
+		return nil, err
+	}
 	log.Info(fmt.Sprintf("After load config file: %v", cfg))
 
 	// 2: Apply flags, Overwrite the configuration file configuration
@@ -55,7 +63,7 @@ func (maker FullNodeMaker) MakeNodeConfig(ctx *cli.Context) *node.Config {
 	// 4: Config log to file
 	makeRunLogFile(&cfg)
 
-	return &cfg
+	return &cfg, nil
 }
 
 // SetNodeConfig applies node-related command line flags to the config.
@@ -152,6 +160,9 @@ func mappingNodeConfig(ctx *cli.Context, cfg *node.Config) {
 	if ctx.GlobalIsSet(utils.VMTestParamFlag.Name) {
 		cfg.VMTestParamEnabled = ctx.GlobalBool(utils.VMTestParamFlag.Name)
 	}
+	if ctx.GlobalIsSet(utils.VMDebugFlag.Name) {
+		cfg.VMDebug = ctx.GlobalBool(utils.VMDebugFlag.Name)
+	}
 
 	//Net
 	if ctx.GlobalIsSet(utils.SingleFlag.Name) {
@@ -214,7 +225,7 @@ func overrideNodeConfigs(ctx *cli.Context, cfg *node.Config) {
 	}
 }
 
-func loadNodeConfigFromFile(ctx *cli.Context, cfg *node.Config) {
+func loadNodeConfigFromFile(ctx *cli.Context, cfg *node.Config) error {
 
 	// first read use settings
 	if file := ctx.GlobalString(utils.ConfigFileFlag.Name); file != "" {
@@ -222,9 +233,11 @@ func loadNodeConfigFromFile(ctx *cli.Context, cfg *node.Config) {
 		if jsonConf, err := ioutil.ReadFile(file); err == nil {
 			err = json.Unmarshal(jsonConf, &cfg)
 			if err == nil {
-				return
+				return nil
 			}
-			log.Warn("Cannot unmarshal the config file content", "error", err)
+
+			log.Error("Cannot unmarshal the config file content", "error", err)
+			return err
 		}
 	}
 
@@ -234,11 +247,20 @@ func loadNodeConfigFromFile(ctx *cli.Context, cfg *node.Config) {
 	if jsonConf, err := ioutil.ReadFile(defaultNodeConfigFileName); err == nil {
 		err = json.Unmarshal(jsonConf, &cfg)
 		if err == nil {
-			return
+			return nil
 		}
-		log.Warn("Cannot unmarshal the default config file content", "error", err)
+		log.Error("Cannot unmarshal the default config file content", "error", err)
+		return err
 	}
-	log.Warn("Read the default config file content error, The program will skip here and continue processing")
+
+	log.Warn(fmt.Sprintf("Read the default config file `%v `content error, The reason may be that the file does not exist or the content is incorrect.", defaultNodeConfigFileName))
+	log.Info(fmt.Sprintf("The program will skip here and continue processing"))
+	return nil
+}
+
+func IsExist(f string) bool {
+	_, err := os.Stat(f)
+	return err == nil || os.IsExist(err)
 }
 
 func makeRunLogFile(cfg *node.Config) {

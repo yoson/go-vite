@@ -29,7 +29,7 @@ func (p *MethodCreateConsensusGroup) DoSend(db vmctxt_interface.VmDatabase, bloc
 	}
 	if block.Amount.Cmp(createConsensusGroupPledgeAmount) != 0 ||
 		!util.IsViteToken(block.TokenId) ||
-		!IsUserAccount(db, block.AccountAddress) {
+		!util.IsUserAccount(db, block.AccountAddress) {
 		return quotaLeft, errors.New("invalid block data")
 	}
 	param := new(types.ConsensusGroupInfo)
@@ -136,7 +136,7 @@ func (p *MethodCancelConsensusGroup) DoSend(db vmctxt_interface.VmDatabase, bloc
 		return quotaLeft, err
 	}
 	if block.Amount.Sign() != 0 ||
-		!IsUserAccount(db, block.AccountAddress) {
+		!util.IsUserAccount(db, block.AccountAddress) {
 		return quotaLeft, errors.New("invalid block data")
 	}
 	gid := new(types.Gid)
@@ -213,7 +213,7 @@ func (p *MethodReCreateConsensusGroup) DoSend(db vmctxt_interface.VmDatabase, bl
 	}
 	if block.Amount.Cmp(createConsensusGroupPledgeAmount) != 0 ||
 		!util.IsViteToken(block.TokenId) ||
-		!IsUserAccount(db, block.AccountAddress) {
+		!util.IsUserAccount(db, block.AccountAddress) {
 		return quotaLeft, errors.New("invalid block data")
 	}
 	gid := new(types.Gid)
@@ -298,10 +298,12 @@ func (c registerConditionOfPledge) checkData(paramData []byte, db vmctxt_interfa
 	switch method {
 	case cabi.MethodNameRegister:
 		blockParam := blockParamInterface.(*cabi.ParamRegister)
-		if blockParam.Gid == types.DELEGATE_GID {
+		if blockParam.Gid == types.DELEGATE_GID ||
+			len(blockParam.Name) == 0 ||
+			len(blockParam.Name) > registrationNameLengthMax {
 			return false
 		}
-		if ok, _ := regexp.MatchString("^[0-9a-zA-Z_.]{1,40}$", blockParam.Name); !ok {
+		if ok, _ := regexp.MatchString("^([0-9a-zA-Z_.]+[ ]?)*[0-9a-zA-Z_.]$", blockParam.Name); !ok {
 			return false
 		}
 		param := new(cabi.VariableConditionRegisterOfPledge)
@@ -311,7 +313,7 @@ func (c registerConditionOfPledge) checkData(paramData []byte, db vmctxt_interfa
 		}
 	case cabi.MethodNameCancelRegister:
 		if block.Amount.Sign() != 0 ||
-			!IsUserAccount(db, block.AccountAddress) {
+			!util.IsUserAccount(db, block.AccountAddress) {
 			return false
 		}
 
@@ -339,7 +341,7 @@ func (c voteConditionOfDefault) checkParam(param []byte, db vmctxt_interface.VmD
 }
 func (c voteConditionOfDefault) checkData(paramData []byte, db vmctxt_interface.VmDatabase, block *ledger.AccountBlock, blockParamInterface interface{}, method string) bool {
 	if block.Amount.Sign() != 0 ||
-		!IsUserAccount(db, block.AccountAddress) {
+		!util.IsUserAccount(db, block.AccountAddress) {
 		return false
 	}
 	return true
@@ -357,7 +359,7 @@ func (c voteConditionOfKeepToken) checkParam(param []byte, db vmctxt_interface.V
 }
 func (c voteConditionOfKeepToken) checkData(paramData []byte, db vmctxt_interface.VmDatabase, block *ledger.AccountBlock, blockParamInterface interface{}, method string) bool {
 	if block.Amount.Sign() != 0 ||
-		!IsUserAccount(db, block.AccountAddress) {
+		!util.IsUserAccount(db, block.AccountAddress) {
 		return false
 	}
 	param := new(cabi.VariableConditionVoteOfKeepToken)

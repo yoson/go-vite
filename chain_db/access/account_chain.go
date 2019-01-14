@@ -3,6 +3,7 @@ package access
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/iterator"
 	"github.com/syndtr/goleveldb/leveldb/util"
@@ -10,7 +11,7 @@ import (
 	"github.com/vitelabs/go-vite/common/helper"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/ledger"
-	"github.com/vitelabs/go-vite/vm/contracts"
+	vmutil "github.com/vitelabs/go-vite/vm/util"
 )
 
 func getAccountBlockHash(dbKey []byte) *types.Hash {
@@ -118,6 +119,11 @@ func (ac *AccountChain) GetHashByHeight(accountId uint64, height uint64) (*types
 
 }
 
+func (ac *AccountChain) IsBlockExisted(hash types.Hash) (bool, error) {
+	key, _ := database.EncodeKey(database.DBKP_ACCOUNTBLOCKMETA, hash.Bytes())
+	return ac.db.Has(key, nil)
+}
+
 func (ac *AccountChain) GetLatestBlock(accountId uint64) (*ledger.AccountBlock, error) {
 	key, err := database.EncodeKey(database.DBKP_ACCOUNTBLOCK, accountId)
 	if err != nil {
@@ -150,16 +156,17 @@ func (ac *AccountChain) GetBlockListByAccountId(accountId, startHeight, endHeigh
 	defer iter.Release()
 
 	// cap
-	cap := uint64(0)
+	listLength := uint64(0)
 	if endHeight >= startHeight {
-		cap = endHeight - startHeight + 1
+		listLength = endHeight - startHeight + 1
 	} else {
 		return nil, errors.New("endHeight is less than startHeight")
 	}
 
-	blockList := make([]*ledger.AccountBlock, 0, cap)
+	blockList := make([]*ledger.AccountBlock, listLength)
 
-	for iter.Next() {
+	i := uint64(0)
+	for ; iter.Next(); i++ {
 		block := &ledger.AccountBlock{}
 		err := block.DbDeserialize(iter.Value())
 
@@ -169,12 +176,9 @@ func (ac *AccountChain) GetBlockListByAccountId(accountId, startHeight, endHeigh
 
 		block.Hash = *getAccountBlockHash(iter.Key())
 		if forward {
-			blockList = append(blockList, block)
+			blockList[i] = block
 		} else {
-			// prepend, less garbage
-			blockList = append(blockList, nil)
-			copy(blockList[1:], blockList)
-			blockList[0] = block
+			blockList[listLength-i-1] = block
 		}
 	}
 
@@ -182,7 +186,15 @@ func (ac *AccountChain) GetBlockListByAccountId(accountId, startHeight, endHeigh
 		return nil, err
 	}
 
-	return blockList, nil
+	if i <= 0 {
+		return nil, nil
+	}
+
+	if forward {
+		return blockList[:i], nil
+	} else {
+		return blockList[listLength-i:], nil
+	}
 }
 
 func (ac *AccountChain) GetBlock(blockHash *types.Hash) (*ledger.AccountBlock, error) {
@@ -370,10 +382,14 @@ func (ac *AccountChain) GetContractGid(accountId uint64) (*types.Gid, error) {
 	}
 
 	fromBlock, getBlockErr := ac.GetBlock(&genesisBlock.FromBlockHash)
-	if getBlockErr == nil {
+	if getBlockErr != nil {
 		return nil, getBlockErr
 	}
 
+	return ac.GetContractGidFromSendCreateBlock(fromBlock)
+}
+
+func (ac *AccountChain) GetContractGidFromSendCreateBlock(fromBlock *ledger.AccountBlock) (*types.Gid, error) {
 	if fromBlock == nil {
 		return nil, nil
 	}
@@ -382,7 +398,7 @@ func (ac *AccountChain) GetContractGid(accountId uint64) (*types.Gid, error) {
 		return nil, nil
 	}
 
-	gid := contracts.GetGidFromCreateContractData(fromBlock.Data)
+	gid := vmutil.GetGidFromCreateContractData(fromBlock.Data)
 	return &gid, nil
 }
 
@@ -601,18 +617,49 @@ func (ac *AccountChain) GetPlanToDelete(maxAccountId uint64, snapshotBlockHeight
 
 	return planToDelete, nil
 }
-
-func (ac *AccountChain) GetUnConfirmedSubLedger(maxAccountId uint64) (map[uint64][]*ledger.AccountBlock, error) {
+func (ac *AccountChain) GetUnConfirmedSubLedgerByAccounts(accountIds []uint64) (map[uint64][]*ledger.AccountBlock, error) {
 	unConfirmedAccountBlocks := make(map[uint64][]*ledger.AccountBlock)
-	for i := uint64(1); i <= maxAccountId; i++ {
-		block, err := ac.GetLatestBlock(i)
+	for _, accountId := range accountIds {
+		blockList, err := ac.GetUnConfirmAccountBlocks(accountId, 0)
 		if err != nil {
 			return nil, err
 		}
-		if block == nil {
-			continue
+
+		if len(blockList) > 0 {
+			unConfirmedAccountBlocks[accountId] = blockList
+		}
+	}
+	return unConfirmedAccountBlocks, nil
+}
+
+func (ac *AccountChain) GetUnConfirmedSubLedger(maxAccountId uint64) (map[uint64][]*ledger.AccountBlock, error) {
+	unConfirmedAccountBlocks := make(map[uint64][]*ledger.AccountBlock)
+	for accountId := uint64(1); accountId <= maxAccountId; accountId++ {
+		blockList, err := ac.GetUnConfirmAccountBlocks(accountId, 0)
+		if err != nil {
+			return nil, err
 		}
 
+		if len(blockList) > 0 {
+			unConfirmedAccountBlocks[accountId] = blockList
+		}
+
+	}
+	return unConfirmedAccountBlocks, nil
+}
+
+func (ac *AccountChain) getUnconfirmedBlocks(accountId uint64) ([]*ledger.AccountBlock, error) {
+	var unconfirmedBlocks []*ledger.AccountBlock
+	block, err := ac.GetLatestBlock(accountId)
+	if err != nil {
+		return nil, err
+	}
+
+	if block == nil {
+		return nil, nil
+	}
+	for {
+		currentHeight := block.Height
 		blockMeta, getMetaErr := ac.GetBlockMeta(&block.Hash)
 
 		if getMetaErr != nil {
@@ -625,10 +672,27 @@ func (ac *AccountChain) GetUnConfirmedSubLedger(maxAccountId uint64) (map[uint64
 		}
 
 		if blockMeta.SnapshotHeight <= 0 {
-			unConfirmedAccountBlocks[i] = []*ledger.AccountBlock{block}
+			// prepend, less garbage
+			unconfirmedBlocks = append(unconfirmedBlocks, nil)
+			copy(unconfirmedBlocks[1:], unconfirmedBlocks)
+			unconfirmedBlocks[0] = block
+		} else {
+			break
+		}
+
+		if currentHeight <= 0 {
+			break
+		}
+		block, err := ac.GetBlockByHeight(accountId, currentHeight-1)
+		if err != nil {
+			return nil, err
+		}
+		if block == nil {
+			break
 		}
 	}
-	return unConfirmedAccountBlocks, nil
+
+	return unconfirmedBlocks, nil
 }
 
 // TODO Add cache, call frequently.
@@ -644,6 +708,9 @@ func (ac *AccountChain) GetConfirmAccountBlock(snapshotHeight uint64, accountId 
 		accountBlockMeta, getMetaErr := ac.GetBlockMeta(accountBlockHash)
 		if getMetaErr != nil {
 			return nil, getMetaErr
+		}
+		if accountBlockMeta == nil {
+			return nil, errors.New(fmt.Sprintf("account block meta is nil, block hash is %s", accountBlockHash))
 		}
 		if accountBlockMeta.SnapshotHeight > 0 && accountBlockMeta.SnapshotHeight <= snapshotHeight {
 			accountBlock := &ledger.AccountBlock{}
@@ -735,7 +802,10 @@ func (ac *AccountChain) GetUnConfirmAccountBlocks(accountId uint64, beforeHeight
 			accountBlock.Hash = *accountBlockHash
 			accountBlock.Meta = accountBlockMeta
 
-			accountBlocks = append(accountBlocks, accountBlock)
+			// prepend
+			accountBlocks = append(accountBlocks, nil)
+			copy(accountBlocks[1:], accountBlocks)
+			accountBlocks[0] = accountBlock
 		} else {
 			return accountBlocks, nil
 		}

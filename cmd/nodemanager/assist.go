@@ -2,11 +2,12 @@ package nodemanager
 
 import (
 	"fmt"
-	"github.com/vitelabs/go-vite/log15"
-	"github.com/vitelabs/go-vite/node"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/vitelabs/go-vite/log15"
+	"github.com/vitelabs/go-vite/node"
 )
 
 var (
@@ -14,12 +15,13 @@ var (
 )
 
 // start node
-func StartNode(node *node.Node) {
+func StartNode(node *node.Node) error {
 	// Prepare the node
 	log.Info(fmt.Sprintf("Begin PrepareNode... "))
 	if err := node.Prepare(); err != nil {
 		log.Error(fmt.Sprintf("Failed to prepare node， %v", err))
 		fmt.Println(fmt.Sprintf("Failed to prepare node， %v", err))
+		return err
 	} else {
 		//Start the node Extenders
 		prepareNodeExtenders(node)
@@ -56,7 +58,7 @@ func StartNode(node *node.Node) {
 			}
 		}
 	}()
-
+	return nil
 }
 
 // wait the node to stop
@@ -67,7 +69,7 @@ func WaitNode(node *node.Node) {
 
 // stop the node
 func StopNode(node *node.Node) {
-	fmt.Sprintf("Stop the Node...")
+	log.Warn("Stop the Node...")
 
 	//Stop the node Extenders
 	log.Warn("Stop the NodeExtenders...")
