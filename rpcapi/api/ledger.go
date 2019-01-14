@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/pkg/errors"
@@ -18,6 +19,7 @@ import (
 func NewLedgerApi(vite *vite.Vite) *LedgerApi {
 	api := &LedgerApi{
 		chain: vite.Chain(),
+		v:     vite,
 		//signer:        vite.Signer(),
 		log: log15.New("module", "rpc_api/ledger_api"),
 	}
@@ -35,6 +37,7 @@ type GcStatus struct {
 
 type LedgerApi struct {
 	chain chain.Chain
+	v     *vite.Vite
 	log   log15.Logger
 }
 
@@ -426,7 +429,12 @@ func (l *LedgerApi) GetVmLogList(blockHash types.Hash) (ledger.VmLogList, error)
 }
 
 func (l *LedgerApi) DeleteToHeight(height uint64) (uint64, error) {
+	p := l.v.Pool()
+	p.Lock()
+	defer p.UnLock()
+
 	sbs, _, err := l.chain.DeleteSnapshotBlocksToHeight(height)
+	l.log.Crit(fmt.Sprintf("del to height:%d, len:%d", height, len(sbs)), "err", err)
 	return uint64(len(sbs)), err
 }
 
