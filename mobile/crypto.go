@@ -7,6 +7,10 @@ import (
 	"github.com/vitelabs/go-vite/wallet/entropystore"
 )
 
+func AesCTRXOR(key, inText, iv []byte) ([]byte, error) {
+	return crypto.AesCTRXOR(key, inText, iv)
+}
+
 func Hash256(data []byte) []byte {
 	return crypto.Hash256(data)
 }
