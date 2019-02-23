@@ -2,6 +2,8 @@ package access
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/vitelabs/go-vite/chain_db/database"
@@ -102,9 +104,9 @@ func (sc *SnapshotChain) GetSnapshotContent(snapshotBlockHeight uint64) (ledger.
 	return snapshotContent, nil
 }
 
-func (sc *SnapshotChain) GetSnapshotBlocksAfterAndEqualTime(endHeight uint64, startTime *time.Time, producer *types.Address) ([]*ledger.SnapshotBlock, error) {
+func (sc *SnapshotChain) GetSnapshotBlocksAfterOrEqualTime(endHashHeight *ledger.HashHeight, startTime *time.Time, producer *types.Address) ([]*ledger.SnapshotBlock, error) {
 	startKey, _ := database.EncodeKey(database.DBKP_SNAPSHOTBLOCK, 1)
-	endKey, _ := database.EncodeKey(database.DBKP_SNAPSHOTBLOCK, endHeight+1)
+	endKey, _ := database.EncodeKey(database.DBKP_SNAPSHOTBLOCK, endHashHeight.Height+1)
 
 	iter := sc.db.NewIterator(&util.Range{Start: startKey, Limit: endKey}, nil)
 	defer iter.Release()
@@ -112,11 +114,22 @@ func (sc *SnapshotChain) GetSnapshotBlocksAfterAndEqualTime(endHeight uint64, st
 	iterOk := iter.Last()
 
 	blocks := make([]*ledger.SnapshotBlock, 0)
+	isChecked := false
 	for iterOk {
 		data := iter.Value()
 		block := &ledger.SnapshotBlock{}
 		if dsErr := block.Deserialize(data); dsErr != nil {
 			return nil, dsErr
+		}
+
+		if !isChecked {
+			if block.Height != endHashHeight.Height || block.Hash != endHashHeight.Hash {
+				err := errors.New(fmt.Sprintf("hashHeight is not correct, The last block hash is %s and height is %d, "+
+					"the given block hash is %s and height is %d", block.Hash, block.Height, endHashHeight.Hash, endHashHeight))
+				return nil, err
+			}
+
+			isChecked = true
 		}
 
 		if block.Timestamp.Before(*startTime) {
