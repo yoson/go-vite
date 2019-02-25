@@ -238,6 +238,7 @@ func (p *chunkPool) handleLoop() {
 			res := v.(chunkResponse)
 
 			if subLedger, err := p.handleResponse(res); err != nil {
+				res.sender.Report(err)
 				p.retry(res.msg.Id)
 			} else {
 				if c := p.chunk(res.msg.Id); c != nil {
@@ -262,13 +263,13 @@ func (p *chunkPool) handleResponse(res chunkResponse) (subLedger *message.SubLed
 	// receive account blocks first
 	for _, block := range subLedger.ABlocks {
 		if err = p.handler.receiveAccountBlock(block, res.sender); err != nil {
-			return
+			return nil, err
 		}
 	}
 
 	for _, block := range subLedger.SBlocks {
 		if err = p.handler.receiveSnapshotBlock(block, res.sender); err != nil {
-			return
+			return nil, err
 		}
 	}
 

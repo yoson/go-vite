@@ -60,6 +60,8 @@ type peer struct {
 	term       chan struct{}
 	msgHandled map[ViteCmd]uint64 // message statistic
 	wg         sync.WaitGroup
+
+	once sync.Once
 }
 
 func (p *peer) Head() types.Hash {
@@ -89,11 +91,9 @@ func newPeer(p *p2p.Peer, mrw *p2p.ProtoFrame, cmdSet p2p.CmdSet) *peer {
 }
 
 func (p *peer) Report(err error) {
-	select {
-	case p.errChan <- err:
-	default:
-		// nothing
-	}
+	p.once.Do(func() {
+		p.errChan <- err
+	})
 }
 
 func (p *peer) FileAddress() *net2.TCPAddr {

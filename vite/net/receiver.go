@@ -1,15 +1,12 @@
 package net
 
 import (
-	"encoding/hex"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/jerry-vite/cuckoofilter"
-
-	"github.com/vitelabs/go-vite/p2p/discovery"
 
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/ledger"
@@ -116,19 +113,19 @@ func (s *receiver) mark(hash types.Hash) {
 	s.filter.done(hash)
 }
 
-func (s *receiver) block(peer Peer, reason p2p.DiscReason) {
-	peer.Disconnect(reason)
-
-	var id discovery.NodeID
-	buf, err := hex.DecodeString(peer.ID())
-	if err != nil {
-		id = discovery.ZERO_NODE_ID
-	} else {
-		copy(id[:], buf)
-	}
-
-	s.p2p.Block(id, peer.RemoteAddr().IP, reason)
-}
+//func (s *receiver) block(peer Peer, reason p2p.DiscReason) {
+//	peer.Disconnect(reason)
+//
+//	var id discovery.NodeID
+//	buf, err := hex.DecodeString(peer.ID())
+//	if err != nil {
+//		id = discovery.ZERO_NODE_ID
+//	} else {
+//		copy(id[:], buf)
+//	}
+//
+//	s.p2p.Block(id, peer.RemoteAddr().IP, reason)
+//}
 
 func (s *receiver) ReceiveNewSnapshotBlock(block *ledger.SnapshotBlock, sender Peer) (err error) {
 	defer monitor.LogTime("net/receive", "NewSnapshotBlock_Time", time.Now())
@@ -164,7 +161,7 @@ func (s *receiver) ReceiveNewSnapshotBlock(block *ledger.SnapshotBlock, sender P
 	if s.verifier != nil {
 		if err = s.verifier.VerifyNetSb(block); err != nil {
 			s.log.Error(fmt.Sprintf("verify NewSnapshotBlock %s/%d from %s fail: %v", block.Hash, block.Height, sender.RemoteAddr(), err))
-			s.block(sender, p2p.DiscProtocolError)
+			//s.block(sender, p2p.DiscProtocolError)
 			return err
 		}
 	}
@@ -221,8 +218,9 @@ func (s *receiver) ReceiveNewAccountBlock(block *ledger.AccountBlock, sender Pee
 	if s.verifier != nil {
 		if err = s.verifier.VerifyNetAb(block); err != nil {
 			s.log.Error(fmt.Sprintf("verify NewAccountBlock %s/%d from %s fail: %v", block.Hash, block.Height, sender.RemoteAddr(), err))
-			s.block(sender, p2p.DiscProtocolError)
-			return
+			//s.block(sender, p2p.DiscProtocolError)
+			//sender.Report(err)
+			return err
 		}
 	}
 
@@ -258,7 +256,6 @@ func (s *receiver) ReceiveSnapshotBlock(block *ledger.SnapshotBlock, sender Peer
 	if s.verifier != nil {
 		if err = s.verifier.VerifyNetSb(block); err != nil {
 			s.log.Error(fmt.Sprintf("verify SnapshotBlock %s/%d from %s fail: %v", block.Hash, block.Height, sender.RemoteAddr(), err))
-			s.block(sender, p2p.DiscProtocolError)
 			return err
 		}
 	}
@@ -286,8 +283,7 @@ func (s *receiver) ReceiveAccountBlock(block *ledger.AccountBlock, sender Peer) 
 	if s.verifier != nil {
 		if err = s.verifier.VerifyNetAb(block); err != nil {
 			s.log.Error(fmt.Sprintf("verify AccountBlock %s/%d from %s fail: %v", block.Hash, block.Height, sender.RemoteAddr(), err))
-			s.block(sender, p2p.DiscProtocolError)
-			return
+			return err
 		}
 	}
 

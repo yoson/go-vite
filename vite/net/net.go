@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vitelabs/go-vite/common/types"
+
 	net2 "net"
 
 	"github.com/vitelabs/go-vite/common"
@@ -59,6 +61,20 @@ func New(cfg *Config) Net {
 	// for test
 	if cfg.Single {
 		return mock()
+	}
+
+	// create wraper
+	v := &verifier{
+		v: cfg.Verifier,
+		m: make(map[types.Hash]struct{}, 1),
+	}
+	cfg.Verifier = v
+	// load invalid hashes
+	for _, hash := range defaultInvalidHashes {
+		v.m[hash] = struct{}{}
+	}
+	for _, hash := range loadCustomInvalidHashes() {
+		v.m[hash] = struct{}{}
 	}
 
 	g := new(gid)

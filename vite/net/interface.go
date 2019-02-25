@@ -100,8 +100,6 @@ type Receiver interface {
 	ReceiveNewSnapshotBlock(block *ledger.SnapshotBlock, sender Peer) (err error)
 	ReceiveNewAccountBlock(block *ledger.AccountBlock, sender Peer) (err error)
 
-	block(peer Peer, reason p2p.DiscReason)
-
 	SubscribeAccountBlock(fn AccountblockCallback) (subId int)
 	// if subId is 0, then ignore
 	UnsubscribeAccountBlock(subId int)
