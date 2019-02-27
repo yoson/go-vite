@@ -58,6 +58,24 @@ var simpleContracts = map[types.Address]*precompiledContract{
 		},
 		cabi.ABIMintage,
 	},
+	types.AddressDexFund: {
+		map[string]contracts.PrecompiledContractMethod{
+			contracts.MethodNameDexFundUserDeposit:             &contracts.MethodDexFundUserDeposit{},
+			contracts.MethodNameDexFundUserWithdraw:             &contracts.MethodDexFundUserWithdraw{},
+			contracts.MethodNameDexFundNewOrder:             &contracts.MethodDexFundNewOrder{},
+			contracts.MethodNameDexFundSettleOrders:             &contracts.MethodDexFundSettleOrders{},
+			contracts.MethodNameDexFundFeeDividend:             &contracts.MethodDexFundFeeDividend{},
+			contracts.MethodNameDexFundMinedVxDividend:             &contracts.MethodDexFundMinedVxDividend{},
+		},
+		contracts.ABIDexFund,
+	},
+	types.AddressDexTrade: {
+		map[string]contracts.PrecompiledContractMethod{
+			contracts.MethodNameDexTradeNewOrder:             &contracts.MethodDexTradeNewOrder{},
+			contracts.MethodNameDexTradeCancelOrder:             &contracts.MethodDexTradeCancelOrder{},
+		},
+		contracts.ABIDexTrade,
+	},
 }
 
 func GetPrecompiledContract(addr types.Address, methodSelector []byte) (contracts.PrecompiledContractMethod, bool, error) {
