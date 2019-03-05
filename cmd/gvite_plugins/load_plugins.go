@@ -105,6 +105,22 @@ var (
 		utils.PProfEnabledFlag,
 		utils.PProfPortFlag,
 	}
+
+	// Metrics
+	metricsFlags = []cli.Flag{
+		utils.MetricsEnabledFlag,
+		utils.InfluxDBEnableFlag,
+		utils.InfluxDBEndpointFlag,
+		utils.InfluxDBDatabaseFlag,
+		utils.InfluxDBUsernameFlag,
+		utils.InfluxDBPasswordFlag,
+		utils.InfluxDBHostTagFlag,
+	}
+
+	// Ledger
+	ledgerFlags = []cli.Flag{
+		utils.LedgerDeleteToHeight,
+	}
 )
 
 func init() {
@@ -129,11 +145,12 @@ func init() {
 		licenseCommand,
 		consoleCommand,
 		attachCommand,
+		ledgerRecoverCommand,
 	}
 	sort.Sort(cli.CommandsByName(app.Commands))
 
 	//Import: Please add the New Flags here
-	app.Flags = utils.MergeFlags(configFlags, generalFlags, p2pFlags, ipcFlags, httpFlags, wsFlags, consoleFlags, producerFlags, logFlags, vmFlags, netFlags, statFlags)
+	app.Flags = utils.MergeFlags(configFlags, generalFlags, p2pFlags, ipcFlags, httpFlags, wsFlags, consoleFlags, producerFlags, logFlags, vmFlags, netFlags, statFlags, metricsFlags, ledgerFlags)
 
 	app.Before = beforeAction
 	app.Action = action

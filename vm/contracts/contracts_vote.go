@@ -20,10 +20,13 @@ func (p *MethodVote) GetFee(db vmctxt_interface.VmDatabase, block *ledger.Accoun
 func (p *MethodVote) GetRefundData() []byte {
 	return []byte{1}
 }
+func (p *MethodVote) GetQuota() uint64 {
+	return VoteGas
+}
 
 // vote for a super node of a consensus group
 func (p *MethodVote) DoSend(db vmctxt_interface.VmDatabase, block *ledger.AccountBlock, quotaLeft uint64) (uint64, error) {
-	quotaLeft, err := util.UseQuota(quotaLeft, VoteGas)
+	quotaLeft, err := util.UseQuota(quotaLeft, p.GetQuota())
 	if err != nil {
 		return quotaLeft, err
 	}
@@ -51,6 +54,7 @@ func (p *MethodVote) DoSend(db vmctxt_interface.VmDatabase, block *ledger.Accoun
 		return quotaLeft, errors.New("check vote condition failed")
 	}
 
+	block.Data, _ = cabi.ABIVote.PackMethod(cabi.MethodNameVote, param.Gid, param.NodeName)
 	return quotaLeft, nil
 }
 
@@ -73,10 +77,13 @@ func (p *MethodCancelVote) GetFee(db vmctxt_interface.VmDatabase, block *ledger.
 func (p *MethodCancelVote) GetRefundData() []byte {
 	return []byte{2}
 }
+func (p *MethodCancelVote) GetQuota() uint64 {
+	return CancelVoteGas
+}
 
 // cancel vote for a super node of a consensus group
 func (p *MethodCancelVote) DoSend(db vmctxt_interface.VmDatabase, block *ledger.AccountBlock, quotaLeft uint64) (uint64, error) {
-	quotaLeft, err := util.UseQuota(quotaLeft, CancelVoteGas)
+	quotaLeft, err := util.UseQuota(quotaLeft, p.GetQuota())
 	if err != nil {
 		return quotaLeft, err
 	}
@@ -90,6 +97,7 @@ func (p *MethodCancelVote) DoSend(db vmctxt_interface.VmDatabase, block *ledger.
 	if err != nil || *gid == types.DELEGATE_GID || !IsExistGid(db, *gid) {
 		return quotaLeft, errors.New("consensus group not exist or cannot cancel vote")
 	}
+	block.Data, _ = cabi.ABIVote.PackMethod(cabi.MethodNameCancelVote, *gid)
 	return quotaLeft, nil
 }
 

@@ -50,12 +50,17 @@ var simpleContracts = map[types.Address]*precompiledContract{
 		map[string]contracts.PrecompiledContractMethod{
 			cabi.MethodNameMintage:             &contracts.MethodMintage{},
 			cabi.MethodNameMintageCancelPledge: &contracts.MethodMintageCancelPledge{},
+			cabi.MethodNameMint:                &contracts.MethodMint{},
+			cabi.MethodNameIssue:               &contracts.MethodIssue{},
+			cabi.MethodNameBurn:                &contracts.MethodBurn{},
+			cabi.MethodNameTransferOwner:       &contracts.MethodTransferOwner{},
+			cabi.MethodNameChangeTokenType:     &contracts.MethodChangeTokenType{},
 		},
 		cabi.ABIMintage,
 	},
 }
 
-func getPrecompiledContract(addr types.Address, methodSelector []byte) (contracts.PrecompiledContractMethod, bool, error) {
+func GetPrecompiledContract(addr types.Address, methodSelector []byte) (contracts.PrecompiledContractMethod, bool, error) {
 	p, ok := simpleContracts[addr]
 	if ok {
 		if method, err := p.abi.MethodById(methodSelector); err == nil {

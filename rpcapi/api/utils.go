@@ -23,7 +23,12 @@ var (
 	testtokenlruCron      *cron.Cron = nil
 	testtokenlruLimitSize            = 20
 	dataDir                          = ""
+	netId                            = uint(0)
 )
+
+func InitConfig(id uint) {
+	netId = id
+}
 
 func InitLog(dir, lvl string) {
 	dataDir = dir
@@ -108,10 +113,26 @@ func uint64ToString(u uint64) string {
 	return strconv.FormatUint(u, 10)
 }
 
+func stringToUint64(s string) (uint64, error) {
+	return strconv.ParseUint(s, 10, 64)
+}
+
 const (
 	secondBetweenSnapshotBlocks int64 = 1
 )
 
 func getWithdrawTime(snapshotTime *time.Time, snapshotHeight uint64, withdrawHeight uint64) int64 {
 	return snapshotTime.Unix() + int64(withdrawHeight-snapshotHeight)*secondBetweenSnapshotBlocks
+}
+
+func getRange(index, count, listLen int) (int, int) {
+	start := index * count
+	if start >= listLen {
+		return listLen, listLen
+	}
+	end := start + count
+	if end >= listLen {
+		return start, listLen
+	}
+	return start, end
 }

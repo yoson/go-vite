@@ -8,6 +8,8 @@ import (
 	"errors"
 	"github.com/vitelabs/go-vite/common"
 	"github.com/vitelabs/go-vite/common/fork"
+	"runtime/debug"
+
 	"github.com/vitelabs/go-vite/log15"
 	"math/big"
 	"path/filepath"
@@ -114,7 +116,7 @@ type VM struct {
 }
 
 func NewVM() *VM {
-	return &VM{i: simpleInterpreter}
+	return &VM{}
 }
 
 func printDebugBlockInfo(block *ledger.AccountBlock, blockList []*vm_context.VmAccountBlock, err error) {
@@ -168,11 +170,12 @@ func (vm *VM) Run(database vmctxt_interface.VmDatabase, block *ledger.AccountBlo
 				"fromHash", block.FromBlockHash.String())
 	}
 	blockContext := &vm_context.VmAccountBlock{block.Copy(), database}
+	vm.i = NewInterpreter(database.CurrentSnapshotBlock().Height, false)
 	switch block.BlockType {
 	case ledger.BlockTypeReceive, ledger.BlockTypeReceiveError:
 		blockContext.AccountBlock.Data = nil
 		if sendBlock.BlockType == ledger.BlockTypeSendCreate {
-			if !fork.IsSmartFork(database.GetSnapshotBlockByHash(&block.SnapshotHash).Height) {
+			if !fork.IsSmartFork(database.CurrentSnapshotBlock().Height) {
 				return nil, NoRetry, errors.New("snapshot height not supported")
 			}
 			return vm.receiveCreate(blockContext, sendBlock, quota.CalcCreateQuota(sendBlock.Fee))
@@ -182,7 +185,7 @@ func (vm *VM) Run(database vmctxt_interface.VmDatabase, block *ledger.AccountBlo
 			return vm.receiveRefund(blockContext, sendBlock)
 		}
 	case ledger.BlockTypeSendCreate:
-		if !fork.IsSmartFork(database.GetSnapshotBlockByHash(&block.SnapshotHash).Height) {
+		if !fork.IsSmartFork(database.CurrentSnapshotBlock().Height) {
 			return nil, NoRetry, errors.New("snapshot height not supported")
 		}
 		quotaTotal, quotaAddition, err := nodeConfig.calcQuota(
@@ -226,7 +229,11 @@ func (vm *VM) Cancel() {
 
 // send contract create transaction, create address, sub balance and service fee
 func (vm *VM) sendCreate(block *vm_context.VmAccountBlock, quotaTotal, quotaAddition uint64) (*vm_context.VmAccountBlock, error) {
-	defer monitor.LogTime("vm", "SendCreate", time.Now())
+	//defer monitor.LogTime("vm", "SendCreate", time.Now())
+	var monitorTags []string
+	monitorTags = append(monitorTags, "vm", "sendCreate")
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	// check can make transaction
 	quotaLeft := quotaTotal
 	quotaRefund := uint64(0)
@@ -245,6 +252,9 @@ func (vm *VM) sendCreate(block *vm_context.VmAccountBlock, quotaTotal, quotaAddi
 	}
 
 	gid := util.GetGidFromCreateContractData(block.AccountBlock.Data)
+	if gid == types.SNAPSHOT_GID {
+		return nil, errors.New("invalid consensus group")
+	}
 	if !contracts.IsExistGid(block.VmContext, gid) {
 		return nil, errors.New("consensus group not exist")
 	}
@@ -278,7 +288,11 @@ func (vm *VM) sendCreate(block *vm_context.VmAccountBlock, quotaTotal, quotaAddi
 
 // receive contract create transaction, create contract account, run initialization code, set contract code, do send blocks
 func (vm *VM) receiveCreate(block *vm_context.VmAccountBlock, sendBlock *ledger.AccountBlock, quotaTotal uint64) (blockList []*vm_context.VmAccountBlock, isRetry bool, err error) {
-	defer monitor.LogTime("vm", "ReceiveCreate", time.Now())
+	//defer monitor.LogTime("vm", "ReceiveCreate", time.Now())
+	var monitorTags []string
+	monitorTags = append(monitorTags, "vm", "receiveCreate")
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	quotaLeft := quotaTotal
 	if block.VmContext.IsAddressExisted(&block.AccountBlock.AccountAddress) {
 		return nil, NoRetry, util.ErrAddressCollision
@@ -300,7 +314,7 @@ func (vm *VM) receiveCreate(block *vm_context.VmAccountBlock, sendBlock *ledger.
 
 	// init contract state and set contract code
 	initCode := util.GetCodeFromCreateContractData(sendBlock.Data)
-	c := newContract(block, sendBlock, initCode, quotaLeft, 0)
+	c := newContract(block.AccountBlock, block.VmContext, sendBlock, initCode, quotaLeft, 0)
 	c.setCallCode(block.AccountBlock.AccountAddress, initCode)
 	code, err := c.run(vm)
 	if err == nil && len(code) <= MaxCodeSize {
@@ -326,10 +340,14 @@ func (vm *VM) receiveCreate(block *vm_context.VmAccountBlock, sendBlock *ledger.
 }
 
 func (vm *VM) sendCall(block *vm_context.VmAccountBlock, quotaTotal, quotaAddition uint64) (*vm_context.VmAccountBlock, error) {
-	defer monitor.LogTime("vm", "SendCall", time.Now())
+	//defer monitor.LogTime("vm", "SendCall", time.Now())
+	var monitorTags []string
+	monitorTags = append(monitorTags, "vm", "sendCall")
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	// check can make transaction
 	quotaLeft := quotaTotal
-	if p, ok, err := getPrecompiledContract(block.AccountBlock.ToAddress, block.AccountBlock.Data); ok {
+	if p, ok, err := GetPrecompiledContract(block.AccountBlock.ToAddress, block.AccountBlock.Data); ok {
 		if err != nil {
 			return nil, err
 		}
@@ -383,7 +401,12 @@ func getReceiveCallData(db vmctxt_interface.VmDatabase, err error) []byte {
 }
 
 func (vm *VM) receiveCall(block *vm_context.VmAccountBlock, sendBlock *ledger.AccountBlock) (blockList []*vm_context.VmAccountBlock, isRetry bool, err error) {
-	defer monitor.LogTime("vm", "ReceiveCall", time.Now())
+
+	//defer monitor.LogTime("vm", "ReceiveCall", time.Now())
+	var monitorTags []string
+	monitorTags = append(monitorTags, "vm", "receiveCall")
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	if checkDepth(block.VmContext, sendBlock) {
 		vm.blockList = []*vm_context.VmAccountBlock{block}
 		block.VmContext.AddBalance(&sendBlock.TokenId, sendBlock.Amount)
@@ -391,7 +414,7 @@ func (vm *VM) receiveCall(block *vm_context.VmAccountBlock, sendBlock *ledger.Ac
 		vm.updateBlock(block, util.ErrDepth, 0)
 		return vm.blockList, NoRetry, util.ErrDepth
 	}
-	if p, ok, _ := getPrecompiledContract(block.AccountBlock.AccountAddress, sendBlock.Data); ok {
+	if p, ok, _ := GetPrecompiledContract(block.AccountBlock.AccountAddress, sendBlock.Data); ok {
 		vm.blockList = []*vm_context.VmAccountBlock{block}
 		block.VmContext.AddBalance(&sendBlock.TokenId, sendBlock.Amount)
 		blockListToSend, err := p.DoReceive(block.VmContext, block.AccountBlock, sendBlock)
@@ -407,7 +430,7 @@ func (vm *VM) receiveCall(block *vm_context.VmAccountBlock, sendBlock *ledger.Ac
 							blockToSend.BlockType,
 							blockToSend.Amount,
 							blockToSend.TokenId,
-							vm.VmContext.GetNewBlockHeight(block),
+							vm.VmContext.GetNewBlockHeight(block.AccountBlock),
 							blockToSend.Data),
 						nil})
 			}
@@ -417,12 +440,6 @@ func (vm *VM) receiveCall(block *vm_context.VmAccountBlock, sendBlock *ledger.Ac
 		}
 		vm.revert(block)
 		refundFlag := false
-		// TODO
-		/*if fork.IsVite1(block.VmContext.GetSnapshotBlockByHash(&block.AccountBlock.SnapshotHash).Height) {
-			refundFlag = doRefund(vm, block, sendBlock, p.GetRefundData(), ledger.BlockTypeSendRefund)
-		} else {
-			refundFlag = doRefund(vm, block, sendBlock, p.GetRefundData(), ledger.BlockTypeSendCall)
-		}*/
 		refundFlag = doRefund(vm, block, sendBlock, p.GetRefundData(), ledger.BlockTypeSendCall)
 		block.AccountBlock.Data = getReceiveCallData(block.VmContext, err)
 		vm.updateBlock(block, err, 0)
@@ -466,7 +483,7 @@ func (vm *VM) receiveCall(block *vm_context.VmAccountBlock, sendBlock *ledger.Ac
 			return vm.blockList, NoRetry, nil
 		}
 		// run code
-		c := newContract(block, sendBlock, sendBlock.Data, quotaLeft, quotaRefund)
+		c := newContract(block.AccountBlock, block.VmContext, sendBlock, sendBlock.Data, quotaLeft, quotaRefund)
 		c.setCallCode(block.AccountBlock.AccountAddress, code)
 		_, err = c.run(vm)
 		if err == nil {
@@ -530,7 +547,7 @@ func doRefund(vm *VM, block *vm_context.VmAccountBlock, sendBlock *ledger.Accoun
 					refundBlockType,
 					refundAmount,
 					ledger.ViteTokenId,
-					vm.VmContext.GetNewBlockHeight(block),
+					vm.VmContext.GetNewBlockHeight(block.AccountBlock),
 					refundData),
 				nil})
 		block.VmContext.AddBalance(&ledger.ViteTokenId, refundAmount)
@@ -545,7 +562,7 @@ func doRefund(vm *VM, block *vm_context.VmAccountBlock, sendBlock *ledger.Accoun
 						refundBlockType,
 						new(big.Int).Set(sendBlock.Amount),
 						sendBlock.TokenId,
-						vm.VmContext.GetNewBlockHeight(block),
+						vm.VmContext.GetNewBlockHeight(block.AccountBlock),
 						refundData),
 					nil})
 			block.VmContext.AddBalance(&sendBlock.TokenId, sendBlock.Amount)
@@ -560,7 +577,7 @@ func doRefund(vm *VM, block *vm_context.VmAccountBlock, sendBlock *ledger.Accoun
 						refundBlockType,
 						new(big.Int).Set(sendBlock.Fee),
 						ledger.ViteTokenId,
-						vm.VmContext.GetNewBlockHeight(block),
+						vm.VmContext.GetNewBlockHeight(block.AccountBlock),
 						refundData),
 					nil})
 			block.VmContext.AddBalance(&ledger.ViteTokenId, sendBlock.Fee)
@@ -571,7 +588,11 @@ func doRefund(vm *VM, block *vm_context.VmAccountBlock, sendBlock *ledger.Accoun
 }
 
 func (vm *VM) sendReward(block *vm_context.VmAccountBlock, quotaTotal, quotaAddition uint64) (*vm_context.VmAccountBlock, error) {
-	defer monitor.LogTime("vm", "SendReward", time.Now())
+	//defer monitor.LogTime("vm", "SendReward", time.Now())
+	var monitorTags []string
+	monitorTags = append(monitorTags, "vm", "sendReward")
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	// check can make transaction
 	quotaLeft := quotaTotal
 	cost, err := util.IntrinsicGasCost(block.AccountBlock.Data, false)
@@ -591,7 +612,11 @@ func (vm *VM) sendReward(block *vm_context.VmAccountBlock, quotaTotal, quotaAddi
 }
 
 func (vm *VM) sendRefund(block *vm_context.VmAccountBlock, quotaTotal, quotaAddition uint64) (*vm_context.VmAccountBlock, error) {
-	defer monitor.LogTime("vm", "sendRefund", time.Now())
+	//defer monitor.LogTime("vm", "sendRefund", time.Now())
+	var monitorTags []string
+	monitorTags = append(monitorTags, "vm", "sendRefund")
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	block.AccountBlock.Fee = helper.Big0
 	cost, err := util.IntrinsicGasCost(block.AccountBlock.Data, false)
 	if err != nil {
@@ -612,7 +637,11 @@ func (vm *VM) sendRefund(block *vm_context.VmAccountBlock, quotaTotal, quotaAddi
 }
 
 func (vm *VM) receiveRefund(block *vm_context.VmAccountBlock, sendBlock *ledger.AccountBlock) (blockList []*vm_context.VmAccountBlock, isRetry bool, err error) {
-	defer monitor.LogTime("vm", "receiveRefund", time.Now())
+	//defer monitor.LogTime("vm", "receiveRefund", time.Now())
+	var monitorTags []string
+	monitorTags = append(monitorTags, "vm", "receiveRefund")
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	// check can make transaction
 	quotaTotal, quotaAddition, err := nodeConfig.calcQuota(
 		block.VmContext,
@@ -639,9 +668,9 @@ func (vm *VM) receiveRefund(block *vm_context.VmAccountBlock, sendBlock *ledger.
 }
 
 func (vm *VM) delegateCall(contractAddr types.Address, data []byte, c *contract) (ret []byte, err error) {
-	_, code := util.GetContractCode(c.block.VmContext, &contractAddr)
+	_, code := util.GetContractCode(c.db, &contractAddr)
 	if len(code) > 0 {
-		cNew := newContract(c.block, c.sendBlock, c.data, c.quotaLeft, c.quotaRefund)
+		cNew := newContract(c.block, c.db, c.sendBlock, c.data, c.quotaLeft, c.quotaRefund)
 		cNew.setCallCode(contractAddr, code)
 		ret, err = cNew.run(vm)
 		c.quotaLeft, c.quotaRefund = cNew.quotaLeft, cNew.quotaRefund
@@ -700,8 +729,8 @@ func (context *VmContext) AppendBlock(block *vm_context.VmAccountBlock) {
 	context.blockList = append(context.blockList, block)
 }
 
-func (context *VmContext) GetNewBlockHeight(block *vm_context.VmAccountBlock) uint64 {
-	return block.AccountBlock.Height + uint64(len(context.blockList))
+func (context *VmContext) GetNewBlockHeight(block *ledger.AccountBlock) uint64 {
+	return block.Height + uint64(len(context.blockList))
 }
 
 func calcContractFee(data []byte) (*big.Int, error) {
@@ -744,4 +773,24 @@ func findPrevReceiveBlock(db vmctxt_interface.VmDatabase, sendBlock *ledger.Acco
 		}
 		prevHash = prevBlock.PrevHash
 	}
+}
+
+func (vm *VM) OffChainReader(db vmctxt_interface.VmDatabase, code []byte, data []byte) (result []byte, err error) {
+	defer func() {
+		if err := recover(); err != nil {
+			debug.PrintStack()
+			nodeConfig.log.Error("offchain reader panic",
+				"err", err,
+				"addr", db.Address(),
+				"snapshotHash", db.CurrentSnapshotBlock().Hash,
+				"code", hex.EncodeToString(code),
+				"data", hex.EncodeToString(data))
+			result = nil
+			err = errors.New("offchain reader panic")
+		}
+	}()
+	vm.i = NewInterpreter(db.CurrentSnapshotBlock().Height, true)
+	c := newContract(&ledger.AccountBlock{AccountAddress: *db.Address()}, db, &ledger.AccountBlock{ToAddress: *db.Address()}, data, offChainReaderGas, 0)
+	c.setCallCode(*db.Address(), code)
+	return c.run(vm)
 }

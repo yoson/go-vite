@@ -1,11 +1,12 @@
 package vm_context
 
 import (
+	"time"
+
 	"github.com/vitelabs/go-vite/chain/cache"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/trie"
-	"time"
 )
 
 type Chain interface {
@@ -13,6 +14,11 @@ type Chain interface {
 	GetGenesisSnapshotBlock() *ledger.SnapshotBlock
 	GetLatestSnapshotBlock() *ledger.SnapshotBlock
 	GetLatestAccountBlock(addr *types.Address) (*ledger.AccountBlock, error)
+	GetAccountBlockByHeight(addr *types.Address, height uint64) (*ledger.AccountBlock, error)
+	GetConfirmBlock(accountBlockHash *types.Hash) (*ledger.SnapshotBlock, error)
+	GetAccountBlockMetaByHash(hash *types.Hash) (*ledger.AccountBlockMeta, error)
+
+	GetSnapshotBlockHeadByHash(hash *types.Hash) (*ledger.SnapshotBlock, error)
 	GetSnapshotBlockBeforeTime(blockCreatedTime *time.Time) (*ledger.SnapshotBlock, error)
 
 	GetSnapshotBlockByHash(hash *types.Hash) (*ledger.SnapshotBlock, error)

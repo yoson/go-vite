@@ -6,6 +6,7 @@ import (
 	"github.com/vitelabs/go-vite/common/helper"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/ledger"
+	"github.com/vitelabs/go-vite/vm/abi"
 	"math/big"
 	"sort"
 	"time"
@@ -39,7 +40,7 @@ func MakeSendBlock(block *ledger.AccountBlock, toAddress types.Address, blockTyp
 }
 
 var (
-	SolidityXXContractType = []byte{1}
+	SolidityPPContractType = []byte{1}
 	contractTypeSize       = 1
 )
 
@@ -59,7 +60,7 @@ func GetContractTypeFromCreateContractData(data []byte) []byte {
 	return data[types.GidSize : types.GidSize+contractTypeSize]
 }
 func IsExistContractType(contractType []byte) bool {
-	if bytes.Equal(contractType, SolidityXXContractType) {
+	if bytes.Equal(contractType, SolidityPPContractType) {
 		return true
 	}
 	return false
@@ -111,4 +112,9 @@ func IsUserAccount(db CommonDb, addr types.Address) bool {
 	}
 	_, code := GetContractCode(db, &addr)
 	return len(code) == 0
+}
+
+func NewLog(c abi.ABIContract, name string, params ...interface{}) *ledger.VmLog {
+	topics, data, _ := c.PackEvent(name, params...)
+	return &ledger.VmLog{Topics: topics, Data: data}
 }

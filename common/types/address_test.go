@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/vitelabs/go-vite/crypto/ed25519"
 )
 
 func TestCreateContractAddress(t *testing.T) {
@@ -91,4 +92,15 @@ func TestAddress_PrintContact(t *testing.T) {
 	fmt.Println("AddressPledge", AddressPledge)
 	fmt.Println("AddressConsensusGroup", AddressConsensusGroup)
 	fmt.Println("AddressMintage", AddressMintage)
+}
+
+func TestPubkeyToAddress(t *testing.T) {
+	publicKey, err := ed25519.HexToPublicKey("meHN+pdEEN1yp34IV8JZRFYqYMB+znhxvSTMRufmeoc=")
+	if err != nil {
+		panic(err)
+	}
+
+	producer := PubkeyToAddress(publicKey)
+
+	fmt.Printf("%+v\n", producer)
 }

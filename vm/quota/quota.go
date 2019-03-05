@@ -7,11 +7,13 @@ import (
 	"github.com/vitelabs/go-vite/vm/util"
 	"github.com/vitelabs/go-vite/vm_context/vmctxt_interface"
 	"math/big"
+	"time"
 )
 
 type NodeConfig struct {
 	QuotaParams
-	sectionList []*big.Float
+	sectionList    []*big.Float
+	difficultyList []*big.Int
 }
 
 var nodeConfig NodeConfig
@@ -22,9 +24,9 @@ func InitQuotaConfig(isTestParam bool) {
 		sectionList[i], _ = new(big.Float).SetPrec(precForFloat).SetString(str)
 	}
 	if isTestParam {
-		nodeConfig = NodeConfig{QuotaParamTest, sectionList}
+		nodeConfig = NodeConfig{QuotaParamTest, sectionList, difficultyListTest}
 	} else {
-		nodeConfig = NodeConfig{QuotaParamMainNet, sectionList}
+		nodeConfig = NodeConfig{QuotaParamMainNet, sectionList, difficultyListMainNet}
 	}
 }
 
@@ -35,6 +37,7 @@ type quotaDb interface {
 	CurrentSnapshotBlock() *ledger.SnapshotBlock
 	PrevAccountBlock() *ledger.AccountBlock
 	GetSnapshotBlockByHash(hash *types.Hash) *ledger.SnapshotBlock
+	GetGenesisSnapshotBlock() *ledger.SnapshotBlock
 }
 
 func GetPledgeQuota(db quotaDb, beneficial types.Address, pledgeAmount *big.Int) (uint64, error) {
@@ -55,6 +58,11 @@ func GetPledgeQuota(db quotaDb, beneficial types.Address, pledgeAmount *big.Int)
 // user account genesis block(a receive block) must calculate a PoW to get quota
 func CalcQuota(db quotaDb, addr types.Address, pledgeAmount *big.Int, difficulty *big.Int) (quotaTotal uint64, quotaAddition uint64, err error) {
 	if difficulty != nil && difficulty.Sign() > 0 {
+		/*if fork.IsLimitFork(db.CurrentSnapshotBlock().Height) {
+			if powLimitReached, err := CheckPoWLimit(db); err != nil || powLimitReached {
+				return 0, 0, util.ErrCalcPoWLimitReached
+			}
+		}*/
 		return CalcQuotaV2(db, addr, pledgeAmount, difficulty)
 	} else {
 		return CalcQuotaV2(db, addr, pledgeAmount, helper.Big0)
@@ -79,7 +87,7 @@ func CalcQuotaV2(db quotaDb, addr types.Address, pledgeAmount *big.Int, difficul
 		if prevBlock != nil && currentSnapshotHash == prevBlock.SnapshotHash {
 			// quick fail on a receive error block referencing to the same snapshot block
 			if prevBlock.BlockType == ledger.BlockTypeReceiveError {
-				return 0, 0, nil
+				return 0, 0, util.ErrOutOfQuota
 			}
 			if isPoW && IsPoW(prevBlock.Nonce) {
 				// only one block gets extra quota when referencing to the same snapshot block
@@ -154,4 +162,61 @@ func getExactIndex(x *big.Float, index int) int {
 	} else {
 		return index - 1
 	}
+}
+
+// A single account is limited to send 10 tx with PoW in one day
+func CheckPoWLimit(db quotaDb) (bool, error) {
+	if db.PrevAccountBlock() == nil {
+		return false, nil
+	}
+	powtimes := 1
+	currentSb := db.CurrentSnapshotBlock()
+	startTime := getTodayStartTime(currentSb.Timestamp, *db.GetGenesisSnapshotBlock().Timestamp)
+	prevBlockHash := db.PrevAccountBlock().Hash
+	for {
+		prevBlock := db.GetAccountBlockByHash(&prevBlockHash)
+		if prevBlock == nil || prevBlock.Timestamp.Before(*startTime) {
+			return false, nil
+		}
+		if IsPoW(prevBlock.Nonce) {
+			powtimes = powtimes + 1
+			if powtimes > powTimesPerDay {
+				return true, nil
+			}
+		}
+		prevBlockHash = prevBlock.PrevHash
+	}
+}
+
+func getTodayStartTime(currentTime *time.Time, genesisTime time.Time) *time.Time {
+	startTime := genesisTime.Add(currentTime.Sub(genesisTime).Round(day))
+	return &startTime
+}
+func calcSectionIndexByQuotaRequired(quotaRequired uint64) uint64 {
+	if quotaRequired > helper.MaxUint64-quotaForSection+1 {
+		return helper.MaxUint64/quotaForSection + 1
+	}
+	return (quotaRequired + quotaForSection - 1) / quotaForSection
+}
+
+func CanPoW(db quotaDb, addr types.Address) bool {
+	currentSnapshotHash := db.CurrentSnapshotBlock().Hash
+	prevBlock := db.PrevAccountBlock()
+	for {
+		if prevBlock != nil && currentSnapshotHash == prevBlock.SnapshotHash {
+			if IsPoW(prevBlock.Nonce) {
+				return false
+			} else {
+				prevBlock = db.GetAccountBlockByHash(&prevBlock.PrevHash)
+				continue
+			}
+		} else {
+			return true
+		}
+	}
+}
+
+func CalcPoWDifficulty(quotaRequired uint64) *big.Int {
+	index := calcSectionIndexByQuotaRequired(quotaRequired)
+	return new(big.Int).Set(nodeConfig.difficultyList[index])
 }
