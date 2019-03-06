@@ -2,6 +2,7 @@ package mobile
 
 import (
 	"github.com/vitelabs/go-vite/common/types"
+	"github.com/vitelabs/go-vite/mobile/crypto"
 	"github.com/vitelabs/go-vite/wallet"
 	"path/filepath"
 	"strings"
@@ -9,7 +10,7 @@ import (
 
 type DerivationResult struct {
 	Path       string
-	Address    *Address
+	Address    *crypto.Address
 	PrivateKey []byte
 }
 
@@ -102,8 +103,8 @@ func (w *Wallet) DeriveByFullPath(entropyStore, fullpath, extensionWord string) 
 	}
 	return &DerivationResult{
 		Path: s,
-		Address: &Address{
-			address: *addr,
+		Address: &crypto.Address{
+			Address: *addr,
 		},
 		PrivateKey: keys,
 	}, nil
@@ -129,8 +130,8 @@ func (w *Wallet) DeriveByIndex(entropyStore string, index int, extensionWord str
 	}
 	return &DerivationResult{
 		Path: s,
-		Address: &Address{
-			address: *addr,
+		Address: &crypto.Address{
+			Address: *addr,
 		},
 		PrivateKey: keys,
 	}, nil
@@ -152,7 +153,7 @@ func (w *Wallet) Stop() {
 	w.wallet.Stop()
 }
 
-func EntropyStoreToAddress(entropyStore string) (*Address, error) {
+func EntropyStoreToAddress(entropyStore string) (*crypto.Address, error) {
 	addrStr := entropyStore
 	if filepath.IsAbs(entropyStore) {
 		addrStr = filepath.Base(entropyStore)
@@ -161,7 +162,7 @@ func EntropyStoreToAddress(entropyStore string) (*Address, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Address{
-		address: address,
+	return &crypto.Address{
+		Address: address,
 	}, nil
 }

@@ -1,6 +1,7 @@
-package mobile
+package crypto
 
 import (
+	"github.com/aead/ecdh"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/crypto"
 	"github.com/vitelabs/go-vite/crypto/ed25519"
@@ -54,6 +55,22 @@ func SignData(priv []byte, message []byte) *SignDataResult {
 	}
 }
 
+func Ed25519PubToCurve25519(ed25519Pub []byte) []byte {
+	var ep ed25519.PublicKey
+	ep = ed25519Pub
+	return ep.ToX25519Pk()
+}
+
+func Ed25519PrivToCurve25519(ed25519Priv []byte) []byte {
+	var ep ed25519.PrivateKey
+	ep = ed25519Priv
+	return ep.ToX25519Sk()
+}
+
+func ComputeSecret(privA []byte, pubB []byte) []byte {
+	ecdh.X25519().ComputeSecret(privA, pubB)
+}
+
 func VerifySignature(pub, message, signData []byte) (bool, error) {
 	return crypto.VerifySig(pub, message, signData)
 }
@@ -61,7 +78,7 @@ func VerifySignature(pub, message, signData []byte) (bool, error) {
 func PubkeyToAddress(pub []byte) *Address {
 	address := types.PubkeyToAddress(pub)
 	a := new(Address)
-	a.address = address
+	a.Address = address
 	return a
 }
 
