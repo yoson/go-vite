@@ -290,28 +290,3 @@ func (m *Manager) MatchAddress(entropyPath string, addr types.Address, index uin
 	_, e := m.DeriveKey(entropyPath, &addr, index, extensionWord)
 	return e
 }
-
-func PubkeyToAddress(pub []byte) string {
-	address := types.PubkeyToAddress(pub)
-	return address.String()
-}
-
-func TryTransformMnemonic(mnemonic, language, extensionWord string) (string, error) {
-	extensionWordP := &extensionWord
-	if extensionWord == "" {
-		extensionWordP = nil
-	}
-	entropyprofile, e := entropystore.MnemonicToEntropy(mnemonic, language, extensionWordP != nil, &extensionWord)
-	if e != nil {
-		return nil, e
-	}
-	address, e := NewAddressFromByte(entropyprofile.PrimaryAddress.Bytes())
-	if e != nil {
-		return nil, e
-	}
-	return address, nil
-}
-
-func NewMnemonic(language string, mnemonicSize int) (string, error) {
-	return entropystore.NewMnemonic(language, &mnemonicSize)
-}
