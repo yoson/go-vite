@@ -2,15 +2,15 @@ package mobile
 
 import (
 	"github.com/vitelabs/go-vite/common/types"
-	"github.com/vitelabs/go-vite/mobile/crypto"
 	"github.com/vitelabs/go-vite/wallet"
+	"github.com/vitelabs/go-vite/wallet/entropystore"
 	"path/filepath"
 	"strings"
 )
 
 type DerivationResult struct {
 	Path       string
-	Address    *crypto.Address
+	Address    string
 	PrivateKey []byte
 }
 
@@ -102,10 +102,8 @@ func (w *Wallet) DeriveByFullPath(entropyStore, fullpath, extensionWord string) 
 		return nil, err
 	}
 	return &DerivationResult{
-		Path: s,
-		Address: &crypto.Address{
-			Address: *addr,
-		},
+		Path:       s,
+		Address:    addr.String(),
 		PrivateKey: keys,
 	}, nil
 }
@@ -129,10 +127,8 @@ func (w *Wallet) DeriveByIndex(entropyStore string, index int, extensionWord str
 		return nil, err
 	}
 	return &DerivationResult{
-		Path: s,
-		Address: &crypto.Address{
-			Address: *addr,
-		},
+		Path:       s,
+		Address:    addr.String(),
 		PrivateKey: keys,
 	}, nil
 }
@@ -153,16 +149,41 @@ func (w *Wallet) Stop() {
 	w.wallet.Stop()
 }
 
-func EntropyStoreToAddress(entropyStore string) (*crypto.Address, error) {
+func EntropyStoreToAddress(entropyStore string) (string, error) {
 	addrStr := entropyStore
 	if filepath.IsAbs(entropyStore) {
 		addrStr = filepath.Base(entropyStore)
 	}
 	address, err := types.HexToAddress(addrStr)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return &crypto.Address{
-		Address: address,
-	}, nil
+	return address.String(), nil
+}
+
+func PubkeyToAddress(pub []byte) *Address {
+	address := types.PubkeyToAddress(pub)
+	a := new(Address)
+	a.Address = address
+	return a
+}
+
+func TryTransformMnemonic(mnemonic, language, extensionWord string) (*Address, error) {
+	extensionWordP := &extensionWord
+	if extensionWord == "" {
+		extensionWordP = nil
+	}
+	entropyprofile, e := entropystore.MnemonicToEntropy(mnemonic, language, extensionWordP != nil, &extensionWord)
+	if e != nil {
+		return nil, e
+	}
+	address, e := NewAddressFromByte(entropyprofile.PrimaryAddress.Bytes())
+	if e != nil {
+		return nil, e
+	}
+	return address, nil
+}
+
+func NewMnemonic(language string, mnemonicSize int) (string, error) {
+	return entropystore.NewMnemonic(language, &mnemonicSize)
 }

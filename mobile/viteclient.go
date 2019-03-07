@@ -31,51 +31,51 @@ func (vc *Client) Close() {
 	vc.c.Close()
 }
 
-func (vc *Client) GetBlocksByAccAddr(addr *Address, index int, count int) (string, error) {
-	return vc.rawMsgCall("ledger_getBlocksByAccAddr", addr.address, index, count)
+func (vc *Client) GetBlocksByAccAddr(addr string, index int, count int) (string, error) {
+	return vc.rawMsgCall("ledger_getBlocksByAccAddr", addr, index, count)
 }
 
-func (vc *Client) GetBlocksByHash(addr *Address, startHash string, count int) (string, error) {
+func (vc *Client) GetBlocksByHash(addr string, startHash string, count int) (string, error) {
 	if startHash == "" {
-		return vc.rawMsgCall("ledger_getBlocksByHash", addr.address, nil, count)
+		return vc.rawMsgCall("ledger_getBlocksByHash", addr, nil, count)
 	}
-	return vc.rawMsgCall("ledger_getBlocksByHash", addr.address, startHash, count)
+	return vc.rawMsgCall("ledger_getBlocksByHash", addr, startHash, count)
 
 }
 
-func (vc *Client) GetAccountByAccAddr(addr *Address) (string, error) {
-	return vc.rawMsgCall("ledger_getAccountByAccAddr", addr.address)
+func (vc *Client) GetAccountByAccAddr(addr string) (string, error) {
+	return vc.rawMsgCall("ledger_getAccountByAccAddr", addr)
 }
 
-func (vc *Client) GetOnroadAccountByAccAddr(addr *Address) (string, error) {
-	return vc.rawMsgCall("onroad_getAccountOnroadInfo", addr.address)
+func (vc *Client) GetOnroadAccountByAccAddr(addr string) (string, error) {
+	return vc.rawMsgCall("onroad_getAccountOnroadInfo", addr)
 }
 
-func (vc *Client) GetOnroadBlocksByAddress(addr *Address, index int, count int) (string, error) {
-	return vc.rawMsgCall("onroad_getOnroadBlocksByAddress", addr.address, index, count)
+func (vc *Client) GetOnroadBlocksByAddress(addr string, index int, count int) (string, error) {
+	return vc.rawMsgCall("onroad_getOnroadBlocksByAddress", addr, index, count)
 }
 
-func (vc *Client) GetLatestBlock(addr *Address) (string, error) {
-	return vc.rawMsgCall("ledger_getLatestBlock", addr.address)
+func (vc *Client) GetLatestBlock(addr string) (string, error) {
+	return vc.rawMsgCall("ledger_getLatestBlock", addr)
 }
 
-func (vc *Client) GetPledgeData(addr *Address) (string, error) {
-	return vc.stringCall("pledge_getPledgeData", addr.address)
+func (vc *Client) GetPledgeData(addr string) (string, error) {
+	return vc.stringCall("pledge_getPledgeData", addr)
 }
 
-func (vc *Client) GetPledgeQuota(addr *Address) (string, error) {
-	return vc.rawMsgCall("pledge_getPledgeQuota", addr.address)
+func (vc *Client) GetPledgeQuota(addr string) (string, error) {
+	return vc.rawMsgCall("pledge_getPledgeQuota", addr)
 }
 
-func (vc *Client) GetPledgeList(addr *Address, index int, count int) (string, error) {
-	return vc.rawMsgCall("pledge_getPledgeList", addr.address, index, count)
+func (vc *Client) GetPledgeList(addr string, index int, count int) (string, error) {
+	return vc.rawMsgCall("pledge_getPledgeList", addr, index, count)
 }
 
-func (vc *Client) GetFittestSnapshotHash(accAddr *Address, sendBlockHash string) (string, error) {
+func (vc *Client) GetFittestSnapshotHash(addr string, sendBlockHash string) (string, error) {
 	if sendBlockHash == "" {
-		return vc.stringCall("ledger_getFittestSnapshotHash", accAddr.address)
+		return vc.stringCall("ledger_getFittestSnapshotHash", addr)
 	}
-	return vc.stringCall("ledger_getFittestSnapshotHash", accAddr.address, sendBlockHash)
+	return vc.stringCall("ledger_getFittestSnapshotHash", addr, sendBlockHash)
 }
 
 func (vc *Client) GetPowNonce(difficulty string, data string) (string, error) {
@@ -98,8 +98,8 @@ func (vc *Client) GetVoteData(gid string, name string) (string, error) {
 	return vc.stringCall("vote_getVoteData", gid, name)
 }
 
-func (vc *Client) GetVoteInfo(gid string, addr *Address) (string, error) {
-	return vc.rawMsgCall("vote_getVoteInfo", gid, addr.address)
+func (vc *Client) GetVoteInfo(gid string, addr string) (string, error) {
+	return vc.rawMsgCall("vote_getVoteInfo", gid, addr)
 }
 
 func (vc *Client) GetCancelVoteData(gid string) (string, error) {

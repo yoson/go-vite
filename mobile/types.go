@@ -1,4 +1,4 @@
-package crypto
+package mobile
 
 import (
 	"github.com/vitelabs/go-vite/common/types"

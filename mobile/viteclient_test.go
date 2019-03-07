@@ -13,8 +13,7 @@ import (
 
 func TestClient_GetBlocksByAccAddr(t *testing.T) {
 	client, _ := mobile.Dial("https://testnet.vitewallet.com/ios")
-	a, _ := mobile.NewAddressFromString("vite_328aecc858abe80f4d9530cfdf15536082e51f4ef8cb870f33")
-	s, err := client.GetBlocksByAccAddr(a, 0, 20)
+	s, err := client.GetBlocksByAccAddr("vite_328aecc858abe80f4d9530cfdf15536082e51f4ef8cb870f33", 0, 20)
 	if err != nil {
 		fmt.Println(err)
 	} else {
@@ -25,8 +24,7 @@ func TestClient_GetBlocksByAccAddr(t *testing.T) {
 
 func TestClient_GetAccountByAccAddr(t *testing.T) {
 	client, _ := mobile.Dial("https://testnet.vitewallet.com/ios")
-	a, _ := mobile.NewAddressFromString("vite_328aecc858abe80f4d9530cfdf15536082e51f4ef8cb870f33")
-	s, err := client.GetAccountByAccAddr(a)
+	s, err := client.GetAccountByAccAddr("vite_328aecc858abe80f4d9530cfdf15536082e51f4ef8cb870f33")
 	if err != nil {
 		fmt.Println(err)
 	} else {
@@ -37,8 +35,7 @@ func TestClient_GetAccountByAccAddr(t *testing.T) {
 
 func TestClient_GetFittestSnapshotHash(t *testing.T) {
 	client, _ := mobile.Dial("https://testnet.vitewallet.com/ios")
-	a, _ := mobile.NewAddressFromString("vite_328aecc858abe80f4d9530cfdf15536082e51f4ef8cb870f33")
-	s, err := client.GetFittestSnapshotHash(a, "")
+	s, err := client.GetFittestSnapshotHash("vite_328aecc858abe80f4d9530cfdf15536082e51f4ef8cb870f33", "")
 	if err != nil {
 		fmt.Println(err)
 	} else {

@@ -1,11 +1,8 @@
 package crypto
 
 import (
-	"github.com/aead/ecdh"
-	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/crypto"
 	"github.com/vitelabs/go-vite/crypto/ed25519"
-	"github.com/vitelabs/go-vite/wallet/entropystore"
 )
 
 func AesCTRXOR(key, inText, iv []byte) ([]byte, error) {
@@ -67,37 +64,10 @@ func Ed25519PrivToCurve25519(ed25519Priv []byte) []byte {
 	return ep.ToX25519Sk()
 }
 
-func ComputeSecret(privA []byte, pubB []byte) []byte {
-	ecdh.X25519().ComputeSecret(privA, pubB)
+func X25519ComputeSecret(private []byte, peersPublic []byte) ([]byte, error) {
+	return crypto.X25519ComputeSecret(private, peersPublic)
 }
 
 func VerifySignature(pub, message, signData []byte) (bool, error) {
 	return crypto.VerifySig(pub, message, signData)
-}
-
-func PubkeyToAddress(pub []byte) *Address {
-	address := types.PubkeyToAddress(pub)
-	a := new(Address)
-	a.Address = address
-	return a
-}
-
-func TryTransformMnemonic(mnemonic, language, extensionWord string) (*Address, error) {
-	extensionWordP := &extensionWord
-	if extensionWord == "" {
-		extensionWordP = nil
-	}
-	entropyprofile, e := entropystore.MnemonicToEntropy(mnemonic, language, extensionWordP != nil, &extensionWord)
-	if e != nil {
-		return nil, e
-	}
-	address, e := NewAddressFromByte(entropyprofile.PrimaryAddress.Bytes())
-	if e != nil {
-		return nil, e
-	}
-	return address, nil
-}
-
-func NewMnemonic(language string, mnemonicSize int) (string, error) {
-	return entropystore.NewMnemonic(language, &mnemonicSize)
 }
