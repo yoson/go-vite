@@ -1,4 +1,4 @@
-package crypto
+package ioscrypto
 
 import (
 	"github.com/vitelabs/go-vite/crypto"
