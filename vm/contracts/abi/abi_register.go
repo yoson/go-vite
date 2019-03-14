@@ -50,6 +50,10 @@ type ParamReward struct {
 func GetRegisterKey(name string, gid types.Gid) []byte {
 	return append(gid.Bytes(), types.DataHash([]byte(name)).Bytes()[types.GidSize:]...)
 }
+func GetGidFromRegisterKey(key []byte) types.Gid {
+	gid, _ := types.BytesToGid(key[:types.GidSize])
+	return gid
+}
 
 func GetHisNameKey(addr types.Address, gid types.Gid) []byte {
 	return append(addr.Bytes(), gid.Bytes()...)

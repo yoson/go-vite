@@ -3,13 +3,10 @@ package nodemanager
 import (
 	"fmt"
 	"github.com/pkg/errors"
-	"github.com/vitelabs/go-vite/chain"
 	"github.com/vitelabs/go-vite/cmd/utils"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/node"
-	"github.com/vitelabs/go-vite/trie"
-	"github.com/vitelabs/go-vite/vm/contracts/abi"
 	"github.com/vitelabs/go-vite/vm_context"
 	"gopkg.in/urfave/cli.v1"
 	"math/big"
@@ -67,6 +64,8 @@ func (nodeManager *ExportNodeManager) Start() error {
 
 	inAccountVCPBalanceMap := make(map[types.Address]*big.Int)
 	contractRevertBalanceMap := make(map[types.Address]*big.Int)
+	contractRevertStorageMap := make(map[types.Address]map[string]string) // <contractAddr - <key - value>>
+	contractRevertLogMap := make(map[types.Address]ledger.VmLogList)      // <contractAddr - <logList>>
 
 	onroadBalanceMap := make(map[types.Address]*big.Int)
 	onroadVCPBalanceMap := make(map[types.Address]*big.Int)
@@ -161,7 +160,7 @@ func (nodeManager *ExportNodeManager) Start() error {
 			inContractBalanceMap[addr] = balance
 
 			var err error
-			contractRevertBalanceMap, err = exportContractBalance(contractRevertBalanceMap, addr, balance, accountStateTrie, chainInstance)
+			contractRevertBalanceMap, contractRevertStorageMap, contractRevertLogMap, err = exportContractBalanceAndStorage(contractRevertBalanceMap, contractRevertStorageMap, contractRevertLogMap, addr, balance, accountStateTrie, chainInstance)
 			if err != nil {
 				return err
 			}
@@ -296,6 +295,15 @@ func (nodeManager *ExportNodeManager) Start() error {
 	nodeManager.printBalanceMap(sumVCPBalanceMap, "vcp")
 	fmt.Println("======sum vcp balance map======")
 
+	// TODO print contract storage map
+	contractRevertStorageMap = filterContractStorageMap(contractRevertStorageMap)
+	fmt.Println("======contract storage map======")
+	nodeManager.printStorageMap(contractRevertStorageMap)
+	fmt.Println("======contract storage map======")
+
+	fmt.Println("======contract log map======")
+	nodeManager.printLogMap(contractRevertLogMap)
+	fmt.Println("======contract log map======")
 	return nil
 }
 
@@ -350,100 +358,23 @@ func (nodeManager *ExportNodeManager) printBalanceMap(balanceMap map[types.Addre
 	fmt.Printf("total: %s %s\n", totalBalance, unit)
 
 }
-func exportContractBalance(m map[types.Address]*big.Int, addr types.Address, balance *big.Int, trie *trie.Trie, c chain.Chain) (map[types.Address]*big.Int, error) {
-	if addr == types.AddressRegister {
-		return exportRegisterBalance(m, trie), nil
-	} else if addr == types.AddressPledge {
-		return exportPledgeBalance(m, trie), nil
-	} else if addr == types.AddressMintage {
-		return exportMintageBalance(m, trie), nil
-	} else if addr == types.AddressVote {
-		return m, nil
-	} else if addr == types.AddressConsensusGroup {
-		return m, nil
-	} else {
-		// for other contract, return to creator
-		responseBlock, err := c.GetAccountBlockByHeight(&addr, 1)
-		if err != nil {
-			return m, err
+
+func (nodeManager *ExportNodeManager) printStorageMap(storageMap map[types.Address]map[string]string) {
+	for addr, m := range storageMap {
+		fmt.Printf("addr: %v\n", addr.String())
+		for k, v := range m {
+			fmt.Printf("%v: %v\n", k, v)
 		}
-		requestBlock, err := c.GetAccountBlockByHash(&responseBlock.FromBlockHash)
-		if err != nil {
-			return m, err
-		}
-		m = updateBalance(m, requestBlock.AccountAddress, new(big.Int).Add(requestBlock.Fee, balance))
-		return m, err
 	}
 }
 
-func exportRegisterBalance(m map[types.Address]*big.Int, trie *trie.Trie) map[types.Address]*big.Int {
-	// for register contract, return to register pledge addr
-	iter := trie.NewIterator(nil)
-	for {
-		key, value, ok := iter.Next()
-		if !ok {
-			break
-		}
-		if abi.IsRegisterKey(key) {
-			registration := new(types.Registration)
-			if err := abi.ABIRegister.UnpackVariable(registration, abi.VariableNameRegistration, value); err == nil && registration.Amount != nil && registration.Amount.Sign() > 0 {
-				m = updateBalance(m, registration.PledgeAddr, registration.Amount)
-			}
+func (nodeManager *ExportNodeManager) printLogMap(logMap map[types.Address]ledger.VmLogList) {
+	for addr, list := range logMap {
+		fmt.Printf("addr: %v\n", addr.String())
+		for _, log := range list {
+			fmt.Printf("%v\n", log)
 		}
 	}
-	return m
-}
-
-func exportPledgeBalance(m map[types.Address]*big.Int, trie *trie.Trie) map[types.Address]*big.Int {
-	// for pledge contract, return to pledge addr
-	iter := trie.NewIterator(nil)
-	for {
-		key, value, ok := iter.Next()
-		if !ok {
-			break
-		}
-		if abi.IsPledgeKey(key) {
-			pledgeInfo := new(abi.PledgeInfo)
-			if err := abi.ABIPledge.UnpackVariable(pledgeInfo, abi.VariableNamePledgeInfo, value); err == nil && pledgeInfo.Amount != nil && pledgeInfo.Amount.Sign() > 0 {
-				m = updateBalance(m, abi.GetPledgeAddrFromPledgeKey(key), pledgeInfo.Amount)
-			}
-		}
-	}
-	return m
-}
-
-var mintageFee = new(big.Int).Mul(big.NewInt(1e3), big.NewInt(1e18))
-
-func exportMintageBalance(m map[types.Address]*big.Int, trie *trie.Trie) map[types.Address]*big.Int {
-	// for mintage contract, return 1000 vite to owner except for vite token
-	iter := trie.NewIterator(nil)
-	for {
-		key, value, ok := iter.Next()
-		if !ok {
-			break
-		}
-		if !abi.IsMintageKey(key) {
-			continue
-		}
-		tokenId := abi.GetTokenIdFromMintageKey(key)
-		if tokenId == ledger.ViteTokenId {
-			continue
-		}
-		if tokenInfo, err := abi.ParseTokenInfo(value); err == nil {
-			m = updateBalance(m, tokenInfo.PledgeAddr, mintageFee)
-		}
-	}
-	return m
-}
-
-func updateBalance(m map[types.Address]*big.Int, addr types.Address, balance *big.Int) map[types.Address]*big.Int {
-	if v, ok := m[addr]; ok {
-		v = v.Add(v, balance)
-		m[addr] = v
-	} else {
-		m[addr] = balance
-	}
-	return m
 }
 
 func (nodeManager *ExportNodeManager) Stop() error {
