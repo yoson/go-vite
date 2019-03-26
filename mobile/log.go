@@ -9,6 +9,12 @@ import (
 
 var mobileLog = log15.Root().New()
 
+func DisableAllLog() {
+	log15.Root().SetHandler(log15.FilterHandler(func(r *log15.Record) bool {
+		return false
+	}, log15.StdoutHandler))
+}
+
 func InitLog(dir string, needDebug bool) error {
 	filename := "vite.log"
 	{
