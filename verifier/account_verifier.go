@@ -72,7 +72,7 @@ func (verifier *AccountVerifier) VerifyforRPC(block *ledger.AccountBlock) (block
 		if stat.errMsg != "" {
 			return nil, errors.New(stat.errMsg)
 		}
-		return nil, errors.New("verify referred block failed")
+		return nil, ErrVerifyRPCBlockPendingState
 	}
 
 	return verifier.VerifyforVM(block)
@@ -396,7 +396,7 @@ func (verifier *AccountVerifier) verifySelfPrev(bs *BlockState) VerifyResult {
 			if bs.block.Height == 1 {
 				prevZero := &types.Hash{}
 				if !bytes.Equal(bs.block.PrevHash.Bytes(), prevZero.Bytes()) {
-					bs.vStat.errMsg += "account first block's prevHash error"
+					bs.vStat.errMsg += ErrVerifyPrevBlockFailed.Error()
 					bs.vStat.referredSelfResult = FAIL
 					return FAIL
 				}
@@ -420,7 +420,7 @@ func (verifier *AccountVerifier) verifySelfPrev(bs *BlockState) VerifyResult {
 			bs.vStat.referredSelfResult = PENDING
 			return PENDING
 		default:
-			bs.vStat.errMsg += "preHash or sbHeight is invalid"
+			bs.vStat.errMsg += ErrVerifyPrevBlockFailed.Error()
 			bs.vStat.referredSelfResult = FAIL
 			return FAIL
 		}
@@ -580,9 +580,6 @@ func (verifier *AccountVerifier) checkAccAddressType(bs *BlockState) bool {
 			bs.vStat.accountTask = append(bs.vStat.accountTask, &AccountPendingTask{Addr: &bs.block.AccountAddress, Hash: &bs.block.Hash})
 			return false
 		}
-	}
-	if bs.accType != ledger.AccountTypeContract || bs.accType != ledger.AccountTypeGeneral {
-		notExistType.Mark(1)
 	}
 	return true
 }
