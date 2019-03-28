@@ -2,6 +2,7 @@ package onroad
 
 import (
 	"container/heap"
+	"strconv"
 	"sync"
 
 	"github.com/vitelabs/go-vite/common"
@@ -10,7 +11,6 @@ import (
 	"github.com/vitelabs/go-vite/log15"
 	"github.com/vitelabs/go-vite/onroad/model"
 	"github.com/vitelabs/go-vite/producer/producerevent"
-	"strconv"
 )
 
 type ContractWorker struct {
@@ -18,9 +18,10 @@ type ContractWorker struct {
 
 	uBlocksPool *model.OnroadBlocksPool
 
-	gid      types.Gid
-	address  types.Address
-	accEvent producerevent.AccountStartEvent
+	gid                 types.Gid
+	address             types.Address
+	accEvent            producerevent.AccountStartEvent
+	currentSnapshotHash types.Hash
 
 	status      int
 	statusMutex sync.Mutex
@@ -55,7 +56,6 @@ func NewContractWorker(manager *Manager) *ContractWorker {
 		blackList: make(map[types.Address]bool),
 		log:       slog.New("worker", "c"),
 	}
-
 	processors := make([]*ContractTaskProcessor, ContractTaskProcessorSize)
 	for i, _ := range processors {
 		processors[i] = NewContractTaskProcessor(worker, i)
@@ -73,6 +73,12 @@ func (w *ContractWorker) Start(accEvent producerevent.AccountStartEvent) {
 	w.gid = accEvent.Gid
 	w.address = accEvent.Address
 	w.accEvent = accEvent
+	if sb := w.manager.chain.GetLatestSnapshotBlock(); sb != nil {
+		w.currentSnapshotHash = sb.Hash
+	} else {
+		w.currentSnapshotHash = w.accEvent.SnapshotHash
+	}
+
 	w.log = slog.New("worker", "c", "addr", accEvent.Address, "gid", accEvent.Gid)
 
 	log := w.log.New("method", "start")
@@ -109,7 +115,7 @@ func (w *ContractWorker) Start(accEvent producerevent.AccountStartEvent) {
 				return
 			}
 
-			q, _ := w.manager.Chain().GetPledgeQuota(w.accEvent.SnapshotHash, address)
+			q := w.GetPledgeQuota(address)
 			c := &contractTask{
 				Addr:  address,
 				Quota: q,
@@ -155,6 +161,7 @@ func (w *ContractWorker) Stop() {
 		close(w.stopDispatcherListener)
 
 		w.uBlocksPool.DeleteContractCache(w.gid)
+		w.clearBlackList()
 
 		w.log.Info("stop all task")
 		wg := new(sync.WaitGroup)
@@ -215,7 +222,7 @@ LOOP:
 }
 
 func (w *ContractWorker) getAndSortAllAddrQuota() {
-	quotas, _ := w.manager.Chain().GetPledgeQuotas(w.accEvent.SnapshotHash, w.contractAddressList)
+	quotas := w.GetPledgeQuotas(w.contractAddressList)
 
 	w.contractTaskPQueue = make([]*contractTask, len(quotas))
 	i := 0
@@ -224,9 +231,6 @@ func (w *ContractWorker) getAndSortAllAddrQuota() {
 			Addr:  addr,
 			Index: i,
 			Quota: quota,
-		}
-		if types.IsPrecompiledContractAddress(addr) {
-			task.Quota = math.MaxUint64
 		}
 		w.contractTaskPQueue[i] = task
 		i++
@@ -257,6 +261,12 @@ func (w *ContractWorker) popContractTask() *contractTask {
 	return nil
 }
 
+func (w *ContractWorker) clearBlackList() {
+	w.blackListMutex.Lock()
+	defer w.blackListMutex.Unlock()
+	w.blackList = make(map[types.Address]bool)
+}
+
 // Don't deal with it for this around of blocks-generating period
 func (w *ContractWorker) addIntoBlackList(addr types.Address) {
 	w.blackListMutex.Lock()
@@ -284,4 +294,44 @@ func (w ContractWorker) Status() int {
 	w.statusMutex.Lock()
 	defer w.statusMutex.Unlock()
 	return w.status
+}
+
+func (w *ContractWorker) GetPledgeQuota(addr types.Address) uint64 {
+	if types.IsPrecompiledContractWithoutQuotaAddress(addr) {
+		return math.MaxUint64
+	}
+	quota, err := w.manager.Chain().GetPledgeQuota(w.currentSnapshotHash, addr)
+	if err != nil {
+		w.log.Error("GetPledgeQuotas err", "error", err)
+	}
+	return quota
+}
+
+func (w *ContractWorker) GetPledgeQuotas(beneficialList []types.Address) map[types.Address]uint64 {
+	quotas := make(map[types.Address]uint64)
+	if w.gid == types.DELEGATE_GID {
+		commonContractAddressList := make([]types.Address, 0, len(beneficialList))
+		for _, addr := range beneficialList {
+			if types.IsPrecompiledContractWithoutQuotaAddress(addr) {
+				quotas[addr] = math.MaxUint64
+			} else {
+				commonContractAddressList = append(commonContractAddressList, addr)
+			}
+		}
+		commonQuotas, err := w.manager.Chain().GetPledgeQuotas(w.currentSnapshotHash, commonContractAddressList)
+		if err != nil {
+			w.log.Error("GetPledgeQuotas err", "error", err)
+		} else {
+			for k, v := range commonQuotas {
+				quotas[k] = v
+			}
+		}
+	} else {
+		var qRrr error
+		quotas, qRrr = w.manager.Chain().GetPledgeQuotas(w.currentSnapshotHash, beneficialList)
+		if qRrr != nil {
+			w.log.Error("GetPledgeQuotas err", "error", qRrr)
+		}
+	}
+	return quotas
 }

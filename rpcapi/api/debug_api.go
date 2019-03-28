@@ -1,10 +1,11 @@
 package api
 
 import (
-	"github.com/vitelabs/go-vite/common/fork"
-	"github.com/vitelabs/go-vite/config"
 	"math/big"
 	"time"
+
+	"github.com/vitelabs/go-vite/common/fork"
+	"github.com/vitelabs/go-vite/config"
 
 	"runtime/debug"
 
@@ -15,7 +16,6 @@ import (
 	"github.com/vitelabs/go-vite/consensus/core"
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/vite"
-	"github.com/vitelabs/go-vite/vite/net"
 )
 
 type DebugApi struct {
@@ -34,6 +34,13 @@ func (api DebugApi) PoolSnapshot() map[string]interface{} {
 	return api.v.Pool().Snapshot()
 }
 
+func (api DebugApi) PoolSnapshotBlockDetail(hash types.Hash) map[string]interface{} {
+	info := api.v.Pool().SnapshotBlockInfo(hash)
+	m := make(map[string]interface{})
+	m["block"] = info
+	return m
+}
+
 func (api DebugApi) PoolAccount(addr types.Address) map[string]interface{} {
 	return api.v.Pool().Account(addr)
 }
@@ -44,6 +51,13 @@ func (api DebugApi) PoolSnapshotChainDetail(chainId string) map[string]interface
 
 func (api DebugApi) PoolAccountChainDetail(addr types.Address, chainId string) map[string]interface{} {
 	return api.v.Pool().AccountChainDetail(addr, chainId)
+}
+
+func (api DebugApi) PoolAccountBlockDetail(addr types.Address, hash types.Hash) map[string]interface{} {
+	info := api.v.Pool().AccountBlockInfo(addr, hash)
+	m := make(map[string]interface{})
+	m["block"] = info
+	return m
 }
 
 func (api DebugApi) P2pNodes() []string {
@@ -279,10 +293,6 @@ func errMap(err error) map[string]interface{} {
 	m := make(map[string]interface{})
 	m["err"] = err
 	return m
-}
-
-func (api DebugApi) FetchTaskQueue() []*net.Task {
-	return api.v.Net().Tasks()
 }
 
 func (api DebugApi) MachineInfo() map[string]interface{} {

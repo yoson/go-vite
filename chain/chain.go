@@ -2,6 +2,7 @@ package chain
 
 import (
 	"fmt"
+	"github.com/pkg/errors"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/vitelabs/go-vite/chain/cache"
 	"github.com/vitelabs/go-vite/chain/index"
@@ -157,36 +158,33 @@ func (c *chain) checkData() bool {
 		return false
 	}
 
-	result, err := c.checkForkPoints()
-	if err != nil {
-		c.log.Crit("checkForkPoints failed, error is "+err.Error(), "method", "CheckAndInitDb")
-	}
-	return result
+	return true
 }
 
-func (c *chain) checkForkPoints() (bool, error) {
-	// check Vite1 upgrade
+func (c *chain) checkForkPoints() (bool, *config.ForkPoint, error) {
 	if c.globalCfg.ForkPoints == nil {
-		return true, nil
+		return true, nil, nil
 	}
+
+	latestSnapshotHeight := c.GetLatestSnapshotBlock().Height
 
 	t := reflect.TypeOf(c.globalCfg.Genesis.ForkPoints).Elem()
 	v := reflect.ValueOf(c.globalCfg.Genesis.ForkPoints).Elem()
 
 	for k := 0; k < t.NumField(); k++ {
 		forkPoint := v.Field(k).Interface().(*config.ForkPoint)
-		if forkPoint.Hash != nil {
+		if forkPoint.Height > 0 && forkPoint.Hash != nil && forkPoint.Height <= latestSnapshotHeight {
 			blockPoint, err := c.GetSnapshotBlockByHash(forkPoint.Hash)
 			if err != nil {
-				return false, err
+				return false, nil, err
 			}
 			if blockPoint == nil {
-				return false, nil
+				return false, forkPoint, nil
 			}
 		}
 	}
 
-	return true, nil
+	return true, nil, nil
 }
 
 func (c *chain) checkAndInitData() {
@@ -197,8 +195,31 @@ func (c *chain) checkAndInitData() {
 		c.initData()
 		// init cache
 		c.initCache()
-		return
 	}
+
+	noFork, forkPoint, err := c.checkForkPoints()
+
+	if err != nil {
+		c.log.Crit("checkForkPoints failed, error is "+err.Error(), "method", "checkAndInitData")
+	}
+
+	// is fork
+	if !noFork {
+		latestSb := c.GetLatestSnapshotBlock()
+		latestHeight := latestSb.Height
+
+		// delete to forkPoint.Height - 1
+		_, _, err := c.DeleteSnapshotBlocksToHeight(forkPoint.Height)
+		if err != nil {
+			c.log.Crit("DeleteSnapshotBlocksToHeight failed, error is "+err.Error(), "method", "checkAndInitData")
+		}
+
+		if c.cfg.LedgerGc && forkPoint.Height+1800 < latestHeight {
+			// recover trie
+			c.TrieGc().Recover()
+		}
+	}
+
 }
 
 func (c *chain) clearData() {
@@ -316,9 +337,16 @@ func (c *chain) Start() {
 		}
 	}
 
+	// check trie
+	if result, err := c.TrieGc().Check(); err != nil {
+		panic(errors.New("c.TrieGc().Check() failed when start chain, error is " + err.Error()))
+	} else if !result {
+		c.TrieGc().Recover()
+	}
+
 	// trie gc
 	if c.cfg.LedgerGc {
-		c.trieGc.Start()
+		c.TrieGc().Start()
 	}
 
 	// start build filter token index
@@ -342,7 +370,7 @@ func (c *chain) Stop() {
 
 	// trie gc
 	if c.cfg.LedgerGc {
-		c.trieGc.Stop()
+		c.TrieGc().Stop()
 	}
 	// Stop compress
 	c.log.Info("Stop chain module")

@@ -162,6 +162,30 @@ var (
 		Usage: "Enable VM debug",
 	}
 
+	// Subscribe
+	SubscribeFlag = cli.BoolFlag{
+		Name:  "subscribe",
+		Usage: "Enable Subscribe",
+	}
+
+	// Ledger
+	LedgerDeleteToHeight = cli.Uint64Flag{
+		Name:  "del",
+		Usage: "Delete to height",
+	}
+
+	// Trie
+	RecoverTrieFlag = cli.BoolFlag{
+		Name:  "trie",
+		Usage: "Recover trie",
+	}
+
+	// Export sb height
+	ExportSbHeightFlags = cli.Uint64Flag{
+		Name:  "sbHeight",
+		Usage: "The snapshot block height",
+	}
+
 	//Net
 	SingleFlag = cli.BoolFlag{
 		Name:  "single",
@@ -189,26 +213,25 @@ var (
 		Name:  "metrics",
 		Usage: "Enable metrics collection and reporting",
 	}
-	MetricsEnableInfluxDBFlag = cli.BoolFlag{
+	InfluxDBEnableFlag = cli.BoolFlag{
 		Name:  "metrics.influxdb",
 		Usage: "Enable metrics export/push to an external InfluxDB database",
 	}
-	MetricsInfluxDBEndpointFlag = cli.StringFlag{
+	InfluxDBEndpointFlag = cli.StringFlag{
 		Name:  "metrics.influxdb.endpoint",
 		Usage: "InfluxDB API endpoint to report metrics to",
-		Value: "http://127.0.0.1:8086",
 	}
-	MetricsInfluxDBDatabaseFlag = cli.StringFlag{
+	InfluxDBDatabaseFlag = cli.StringFlag{
 		Name:  "metrics.influxdb.database",
 		Usage: "InfluxDB database name to push reported metrics to",
 		Value: "metrics",
 	}
-	MetricsInfluxDBUsernameFlag = cli.StringFlag{
+	InfluxDBUsernameFlag = cli.StringFlag{
 		Name:  "metrics.influxdb.username",
 		Usage: "Username to authorize access to the database",
 		Value: "test",
 	}
-	MetricsInfluxDBPasswordFlag = cli.StringFlag{
+	InfluxDBPasswordFlag = cli.StringFlag{
 		Name:  "metrics.influxdb.password",
 		Usage: "Password to authorize access to the database",
 		Value: "test",
@@ -217,7 +240,7 @@ var (
 	// It is used so that we can group all nodes and average a measurement across all of them, but also so
 	// that we can select a specific node and inspect its measurements.
 	// https://docs.influxdata.com/influxdb/v1.4/concepts/key_concepts/#tag-key
-	MetricsInfluxDBHostTagFlag = cli.StringFlag{
+	InfluxDBHostTagFlag = cli.StringFlag{
 		Name:  "metrics.influxdb.host.tag",
 		Usage: "InfluxDB `host` tag attached to all measurements",
 		Value: "localhost",
@@ -253,15 +276,15 @@ func MergeFlags(flagsSet ...[]cli.Flag) []cli.Flag {
 func SetupMetricsExport(ctx *cli.Context) {
 	if metrics.MetricsEnabled {
 		var (
-			endpoint = ctx.GlobalString(MetricsInfluxDBEndpointFlag.Name)
-			database = ctx.GlobalString(MetricsInfluxDBDatabaseFlag.Name)
-			username = ctx.GlobalString(MetricsInfluxDBUsernameFlag.Name)
-			password = ctx.GlobalString(MetricsInfluxDBPasswordFlag.Name)
-			hosttag  = ctx.GlobalString(MetricsInfluxDBHostTagFlag.Name)
+			endpoint  = ctx.GlobalString(InfluxDBEndpointFlag.Name)
+			database  = ctx.GlobalString(InfluxDBDatabaseFlag.Name)
+			username  = ctx.GlobalString(InfluxDBUsernameFlag.Name)
+			password  = ctx.GlobalString(InfluxDBPasswordFlag.Name)
+			hosttag   = ctx.GlobalString(InfluxDBHostTagFlag.Name)
+			namespace = "monitor"
 		)
-		go influxdb.InfluxDBWithTags(metrics.DefaultRegistry, 10*time.Second, endpoint, database, username, password, "monitor", map[string]string{
-			"host": hosttag,
-		})
+		go influxdb.InfluxDBWithTags(metrics.DefaultRegistry, 10*time.Second, endpoint, database, username, password, namespace,
+			map[string]string{"host": hosttag})
 
 	}
 }

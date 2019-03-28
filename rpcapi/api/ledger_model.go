@@ -27,6 +27,8 @@ type AccountBlock struct {
 
 	ConfirmedTimes *string       `json:"confirmedTimes"`
 	TokenInfo      *RpcTokenInfo `json:"tokenInfo"`
+
+	ReceiveBlockHeights []string `json:"receiveBlockHeights"`
 }
 
 func (ab *AccountBlock) LedgerAccountBlock() (*ledger.AccountBlock, error) {
@@ -139,7 +141,11 @@ type RpcTokenInfo struct {
 	Owner          types.Address     `json:"owner"`
 	PledgeAmount   *string           `json:"pledgeAmount,omitempty"` // *big.Int
 	WithdrawHeight string            `json:"withdrawHeight"`         // uint64
+	PledgeAddr     types.Address     `json:"pledgeAddr"`
 	TokenId        types.TokenTypeId `json:"tokenId"`
+	MaxSupply      *string           `json:"maxSupply"` // *big.Int
+	OwnerBurnOnly  bool              `json:"ownerBurnOnly"`
+	IsReIssuable   bool              `json:"isReIssuable"`
 }
 
 func RawTokenInfoToRpc(tinfo *types.TokenInfo, tti types.TokenTypeId) *RpcTokenInfo {
@@ -153,7 +159,10 @@ func RawTokenInfoToRpc(tinfo *types.TokenInfo, tti types.TokenTypeId) *RpcTokenI
 			Owner:          tinfo.Owner,
 			PledgeAmount:   nil,
 			WithdrawHeight: strconv.FormatUint(tinfo.WithdrawHeight, 10),
+			PledgeAddr:     tinfo.PledgeAddr,
 			TokenId:        tti,
+			OwnerBurnOnly:  tinfo.OwnerBurnOnly,
+			IsReIssuable:   tinfo.IsReIssuable,
 		}
 		if tinfo.TotalSupply != nil {
 			s := tinfo.TotalSupply.String()
@@ -162,6 +171,10 @@ func RawTokenInfoToRpc(tinfo *types.TokenInfo, tti types.TokenTypeId) *RpcTokenI
 		if tinfo.PledgeAmount != nil {
 			s := tinfo.PledgeAmount.String()
 			rt.PledgeAmount = &s
+		}
+		if tinfo.MaxSupply != nil {
+			s := tinfo.MaxSupply.String()
+			rt.MaxSupply = &s
 		}
 	}
 	return rt
@@ -231,5 +244,21 @@ func ledgerToRpcBlock(block *ledger.AccountBlock, chain chain.Chain) (*AccountBl
 	rpcAccountBlock := createAccountBlock(block, token, confirmTimes)
 	rpcAccountBlock.FromAddress = fromAddress
 	rpcAccountBlock.ToAddress = toAddress
+
+	if block.IsSendBlock() {
+		if block.Meta == nil {
+			var err error
+			block.Meta, err = chain.ChainDb().Ac.GetBlockMeta(&block.Hash)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if block.Meta != nil {
+			for _, receiveBlockHeight := range block.Meta.ReceiveBlockHeights {
+				rpcAccountBlock.ReceiveBlockHeights = append(rpcAccountBlock.ReceiveBlockHeights, strconv.FormatUint(receiveBlockHeight, 10))
+			}
+		}
+	}
 	return rpcAccountBlock, nil
 }

@@ -108,7 +108,7 @@ type AccountBlock struct {
 	Data         []byte     `json:"data"`
 
 	Timestamp *time.Time `json:"timestamp"`
-	StateHash types.Hash `json:"-"`
+	StateHash types.Hash `json:"stateHash"`
 
 	LogHash *types.Hash `json:"logHash"`
 

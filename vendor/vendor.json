@@ -27,6 +27,12 @@
 			"revisionTime": "2018-07-25T03:58:23Z"
 		},
 		{
+			"checksumSHA1": "/sEYS6BkMfP0yyUMSxbUqVaL824=",
+			"path": "github.com/aead/ecdh",
+			"revision": "85c03e91d99ae3280de8341f9434bf4c733ddafb",
+			"revisionTime": "2019-02-19T10:11:02Z"
+		},
+		{
 			"checksumSHA1": "0EhLvZ6Og9HYqJtCc2Dzs1EgM30=",
 			"path": "github.com/bitly/go-simplejson",
 			"revision": "0c965951289cce37dec52ad1f34200fefc816777",
@@ -71,6 +77,12 @@
 		{
 			"checksumSHA1": "RcSAu8uvUpmZDF4u5IsogcncvNQ=",
 			"path": "github.com/elastic/gosigar",
+			"revision": "f498c67133bcded80f5966ee63acfe68cff4e6bf",
+			"revisionTime": "2018-11-15T17:14:25Z"
+		},
+		{
+			"checksumSHA1": "qDsgp2kAeI9nhj565HUScaUyjU4=",
+			"path": "github.com/elastic/gosigar/sys/windows",
 			"revision": "f498c67133bcded80f5966ee63acfe68cff4e6bf",
 			"revisionTime": "2018-11-15T17:14:25Z"
 		},
@@ -268,6 +280,36 @@
 			"revisionTime": "2018-11-29T16:20:56Z"
 		},
 		{
+			"checksumSHA1": "+b9Dcrefp1FAUW1mDYpqr7jVKuA=",
+			"path": "github.com/influxdata/influxdb/client/v2",
+			"revision": "38b07bbaab8616d26ce9e71eb9a7e62fd6463c6e",
+			"revisionTime": "2018-12-21T16:29:26Z"
+		},
+		{
+			"checksumSHA1": "/SC4ZMeKnNqhuYDhWLZp+z4yeG8=",
+			"path": "github.com/influxdata/influxdb/models",
+			"revision": "38b07bbaab8616d26ce9e71eb9a7e62fd6463c6e",
+			"revisionTime": "2018-12-21T16:29:26Z"
+		},
+		{
+			"checksumSHA1": "Z0Bb5PWa5WL/j5Dm2KJCLGn1l7U=",
+			"path": "github.com/influxdata/influxdb/pkg/escape",
+			"revision": "38b07bbaab8616d26ce9e71eb9a7e62fd6463c6e",
+			"revisionTime": "2018-12-21T16:29:26Z"
+		},
+		{
+			"checksumSHA1": "Ko4K1VW7jAEhGdg9i7CGMHS7wKw=",
+			"path": "github.com/influxdata/platform/models",
+			"revision": "3429e8d0c6753e7f1dab6b080397580a5ba94205",
+			"revisionTime": "2018-12-28T23:02:19Z"
+		},
+		{
+			"checksumSHA1": "Z1jNHNivahCME1jnd0nsJ/rUpfc=",
+			"path": "github.com/influxdata/platform/pkg/escape",
+			"revision": "3429e8d0c6753e7f1dab6b080397580a5ba94205",
+			"revisionTime": "2018-12-28T23:02:19Z"
+		},
+		{
 			"checksumSHA1": "fDPeeWbnxZqrfrU0JFyMa+glPDI=",
 			"path": "github.com/jackpal/gateway",
 			"revision": "cbcf4e3f3baee7952fc386c8b2534af4d267c875",
@@ -278,6 +320,12 @@
 			"path": "github.com/jackpal/go-nat-pmp",
 			"revision": "28a68d0c24adce1da43f8df6a57340909ecd7fdd",
 			"revisionTime": "2017-04-05T19:55:58Z"
+		},
+		{
+			"checksumSHA1": "oUkIq68/vjrcevnGaGOvEAeF1YQ=",
+			"path": "github.com/jerry-vite/cuckoofilter",
+			"revision": "a8d938a37e3cbc09d04299b8c78c28fd3339527a",
+			"revisionTime": "2019-01-21T09:36:13Z"
 		},
 		{
 			"checksumSHA1": "3ohk4dFYrERZ6WTdKkIwnTA0HSI=",
@@ -478,12 +526,6 @@
 			"revisionTime": "2018-08-26T18:02:56Z"
 		},
 		{
-			"checksumSHA1": "y5uEa8FUgEkc/2/fs+XQ+ilB0js=",
-			"path": "github.com/seiflotfy/cuckoofilter",
-			"revision": "09e42b44620a3ea116a06f755fbf05fb62a1f550",
-			"revisionTime": "2018-08-01T14:34:48Z"
-		},
-		{
 			"checksumSHA1": "KUrV5Esg6Wdcrv+hDc6/p0Q3/qw=",
 			"path": "github.com/shirou/gopsutil",
 			"revision": "0f70a4a06f7a1039305ec9b3ba9c2800f8929fba",
@@ -634,10 +676,22 @@
 			"revisionTime": "2018-07-16T17:03:10Z"
 		},
 		{
+			"checksumSHA1": "OPHMic4lHkxLcetBQ122gRyQGNE=",
+			"path": "github.com/tylertreat/BoomFilters",
+			"revision": "611b3dbe80e85df3a0a10a43997d4d5784e86245",
+			"revisionTime": "2018-10-28T19:28:13Z"
+		},
+		{
 			"checksumSHA1": "ejjxT0+wDWWncfh0Rt3lSH4IbXQ=",
 			"path": "golang.org/x/crypto/blake2b",
 			"revision": "a49355c7e3f8fe157a85be2f77e6e269a0f89602",
 			"revisionTime": "2018-06-20T09:14:27Z"
+		},
+		{
+			"checksumSHA1": "JjkVVfbdvjH+FbVgKPrv0+WtpFw=",
+			"path": "golang.org/x/crypto/curve25519",
+			"revision": "8dd112bcdc25174059e45e07517d9fc663123347",
+			"revisionTime": "2019-02-28T09:13:53Z"
 		},
 		{
 			"checksumSHA1": "1MGpGDQqnUoRpv7VEcQrXOBydXE=",

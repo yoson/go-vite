@@ -1,16 +1,17 @@
 package compress
 
 import (
-	"github.com/pkg/errors"
-	"github.com/vitelabs/go-vite/common"
-	"github.com/vitelabs/go-vite/ledger"
-	"github.com/vitelabs/go-vite/log15"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/pkg/errors"
+	"github.com/vitelabs/go-vite/common"
+	"github.com/vitelabs/go-vite/ledger"
+	"github.com/vitelabs/go-vite/log15"
 )
 
 const (
@@ -53,7 +54,7 @@ func NewCompressor(chain Chain, dataDir string) *Compressor {
 	if err := c.createDataDir(); err != nil {
 		c.log.Crit("Create data directory failed, error is "+err.Error(), "method", "NewCompressor")
 	}
-	c.indexer = NewIndexer(c.dir)
+	c.indexer = NewIndexer(c.dir, chain)
 	return c
 }
 
@@ -86,7 +87,7 @@ func (c *Compressor) ClearData() error {
 		return errors.New("Create data directory failed, error is " + err.Error())
 	}
 
-	c.indexer = NewIndexer(c.dir)
+	c.indexer = NewIndexer(c.dir, c.chain)
 	return nil
 }
 
@@ -94,7 +95,7 @@ func (c *Compressor) Indexer() *Indexer {
 	return c.indexer
 }
 
-func (c *Compressor) FileReader(filename string) io.ReadCloser {
+func (c *Compressor) FileReader(filename string) (io.ReadCloser, error) {
 	return NewFileReader(path.Join(c.dir, filename))
 }
 
@@ -116,6 +117,9 @@ func (c *Compressor) Start() bool {
 	c.ticker = time.NewTicker(c.tickerDuration)
 
 	c.wg.Add(1)
+
+	// repair indexer
+	c.indexer.CheckAndRepair()
 
 	common.Go(func() {
 		defer c.wg.Done()
@@ -143,6 +147,9 @@ func (c *Compressor) RunTask() {
 	}
 
 	c.status = TASK_RUNNING
+
+	// first check rollback
+	c.indexer.checkAndRepairRollback()
 
 	tmpFileName := filepath.Join(c.dir, "subgraph_tmp")
 	task := NewCompressorTask(c.chain, tmpFileName, c.indexer.LatestHeight())

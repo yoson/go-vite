@@ -1,6 +1,7 @@
 package trie_gc
 
 import (
+	"fmt"
 	"github.com/vitelabs/go-vite/log15"
 	"math/rand"
 	"sync"
@@ -47,6 +48,46 @@ func NewCollector(chain Chain, ledgerGcRetain uint64) Collector {
 	return gc
 }
 
+func (gc *collector) Check() (bool, error) {
+	const (
+		numPerCheck = 100
+	)
+
+	startSnapshotBlockHeight := gc.RetainMinHeight()
+	latestSnapshotBlock := gc.chain.GetLatestSnapshotBlock()
+
+	fmt.Printf("check from %d to %d\n", startSnapshotBlockHeight, latestSnapshotBlock.Height)
+
+	current := startSnapshotBlockHeight
+
+	for current <= latestSnapshotBlock.Height {
+		next := current + numPerCheck
+
+		if next > latestSnapshotBlock.Height {
+			next = latestSnapshotBlock.Height
+		}
+		count := next - current + 1
+		sbList, err := gc.chain.GetSnapshotBlocksByHeight(current, count, true, false)
+		if err != nil {
+			return false, err
+		}
+
+		for _, sb := range sbList {
+			result, err := gc.chain.ShallowCheckStateTrie(&sb.StateHash)
+			if err != nil {
+				return false, err
+			}
+			if !result {
+				return false, nil
+			}
+		}
+
+		current = next + 1
+	}
+
+	return true, nil
+}
+
 func (gc *collector) randomCheckInterval() time.Duration {
 	minCheckInterval := int64(gc.minCheckInterval)
 	maxCheckInterval := int64(gc.maxCheckInterval)
@@ -55,21 +96,26 @@ func (gc *collector) randomCheckInterval() time.Duration {
 
 func (gc *collector) Start() {
 	gc.statusLock.Lock()
-	defer gc.statusLock.Unlock()
 	if gc.status >= STATUS_STARTED {
 		gc.log.Error("gc is started, don't start again")
+		gc.statusLock.Unlock()
 		return
 	}
 
+	gc.status = STATUS_STARTED
+
 	gc.ticker = time.NewTicker(gc.randomCheckInterval())
-	gc.taskTerminal = make(chan struct{})
-	gc.terminal = make(chan struct{})
+	gc.taskTerminal = make(chan struct{}, 1)
+	gc.terminal = make(chan struct{}, 1)
 
 	gc.wg.Add(1)
+	gc.statusLock.Unlock()
+
 	go func() {
 		defer gc.wg.Done()
 
 		gc.runTask()
+
 		for {
 			select {
 			case <-gc.ticker.C:
@@ -81,23 +127,40 @@ func (gc *collector) Start() {
 		}
 
 	}()
-	gc.status = STATUS_STARTED
+	gc.log.Info("gc started.")
 }
 
 func (gc *collector) Stop() {
 	gc.statusLock.Lock()
-	defer gc.statusLock.Unlock()
 	if gc.status < STATUS_STARTED {
-		gc.log.Error("gc is stopped, don't stop again")
+		gc.statusLock.Unlock()
 		return
 	}
+	gc.status = STATUS_STOPPED
+
+	gc.log.Info("gc stopping.")
 
 	gc.ticker.Stop()
 	close(gc.taskTerminal)
 	close(gc.terminal)
 
+	gc.statusLock.Unlock()
+
 	gc.wg.Wait()
-	gc.status = STATUS_STOPPED
+	gc.log.Info("gc stopped.")
+}
+
+func (gc *collector) RetainMinHeight() uint64 {
+	checkSnapshotBlockNum := gc.marker.RetainSnapshotHeight()
+
+	latestSnapshotBlock := gc.chain.GetLatestSnapshotBlock()
+	retainMinHeight := uint64(1)
+
+	if latestSnapshotBlock.Height > checkSnapshotBlockNum {
+		retainMinHeight = latestSnapshotBlock.Height - checkSnapshotBlockNum + 1
+	}
+
+	return retainMinHeight
 }
 
 func (gc *collector) Status() uint8 {
@@ -119,7 +182,7 @@ func (gc *collector) runTask() {
 		gc.status = STATUS_STARTED
 		gc.statusLock.Unlock()
 	}()
-
+	gc.log.Info("gc run task.")
 	if err := gc.marker.MarkAndClean(gc.taskTerminal); err != nil {
 		gc.log.Error("gc.Marker.Mark failed, error is "+err.Error(), "method", "runTask")
 		return

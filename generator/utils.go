@@ -1,11 +1,16 @@
 package generator
 
 import (
+	"fmt"
 	"github.com/pkg/errors"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/ledger"
+	"github.com/vitelabs/go-vite/log15"
+	"github.com/vitelabs/go-vite/vm"
 	"github.com/vitelabs/go-vite/vm_context"
+	"github.com/vitelabs/go-vite/vm_context/vmctxt_interface"
 	"math/rand"
+	"runtime/debug"
 	"time"
 )
 
@@ -51,10 +56,12 @@ func GetFittestGeneratorSnapshotHash(chain vm_context.Chain, accAddr *types.Addr
 			return nil, nil, errors.New("the height of the snapshotblock referred can't be larger than the latest")
 		}
 	}
-	gapHeight := latestSb.Height - referredMaxSbHeight
-	fittestSbHeight = latestSb.Height - minGapToLatest(gapHeight, DefaultHeightDifference)
-	if isRandom && fittestSbHeight < latestSb.Height {
-		fittestSbHeight = fittestSbHeight + addHeight(1)
+	gap2Referred := latestSb.Height - referredMaxSbHeight
+	minGap, randomGap := measureGapToLatest(gap2Referred, DefaultHeightDifference)
+	if isRandom {
+		fittestSbHeight = latestSb.Height - randomGap
+	} else {
+		fittestSbHeight = latestSb.Height - minGap
 	}
 
 	// protect code
@@ -78,24 +85,56 @@ func GetFittestGeneratorSnapshotHash(chain vm_context.Chain, accAddr *types.Addr
 	return &prevSb.Hash, fittestSbHash, nil
 }
 
-func addHeight(gapHeight uint64) uint64 {
+func measureGapToLatest(referredGap, defaultGap uint64) (minGap, randomGap uint64) {
+	if referredGap <= defaultGap {
+		return referredGap, uint64(0) + getRandomHeight(referredGap)
+	} else {
+		return defaultGap, defaultGap + getRandomHeight(referredGap-defaultGap)
+	}
+}
+
+func getRandomHeight(gapHeight uint64) uint64 {
 	randHeight := uint64(0)
 	if gapHeight >= 1 {
 		rand.Seed(time.Now().UnixNano())
-		randHeight = uint64(rand.Intn(int(gapHeight + 1)))
+		randHeight = uint64(rand.Intn(int(gapHeight%types.SnapshotHourHeight + 1)))
 	}
 	return randHeight
 }
 
-func minGapToLatest(us ...uint64) uint64 {
-	if len(us) == 0 {
-		panic("zero args")
+func RecoverVmContext(chain vm_context.Chain, block *ledger.AccountBlock) (vmContextList []vmctxt_interface.VmDatabase, resultErr error) {
+	var tLog = log15.New("method", "RecoverVmContext")
+	vmContext, err := vm_context.NewVmContext(chain, &block.SnapshotHash, &block.PrevHash, &block.AccountAddress)
+	if err != nil {
+		return nil, err
 	}
-	min := us[0]
-	for _, u := range us {
-		if u < min {
-			min = u
+	var sendBlock *ledger.AccountBlock = nil
+	if block.IsReceiveBlock() {
+		if sendBlock = vmContext.GetAccountBlockByHash(&block.FromBlockHash); sendBlock == nil {
+			return nil, ErrGetVmContextValueFailed
 		}
 	}
-	return min
+	defer func() {
+		if err := recover(); err != nil {
+			// print stack
+			debug.PrintStack()
+			errDetail := fmt.Sprintf("block(addr:%v prevHash:%v sbHash:%v )", block.AccountAddress, block.PrevHash, block.SnapshotHash)
+			if sendBlock != nil {
+				errDetail += fmt.Sprintf("sendBlock(addr:%v hash:%v)", block.AccountAddress, block.Hash)
+			}
+			tLog.Error(fmt.Sprintf("generator_vm panic error %v", err), "detail", errDetail)
+			resultErr = errors.New("generator_vm panic error")
+		}
+	}()
+
+	newVm := *vm.NewVM()
+	blockList, isRetry, err := newVm.Run(vmContext, block, sendBlock)
+
+	tLog.Debug("vm result", fmt.Sprintf("len %v, isRetry %v, err %v", len(blockList), isRetry, err))
+
+	for _, v := range blockList {
+		vmContextList = append(vmContextList, v.VmContext)
+	}
+
+	return vmContextList, err
 }

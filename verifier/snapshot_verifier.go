@@ -26,10 +26,10 @@ func NewSnapshotVerifier(ch chain.Chain, cs consensus.Verifier) *SnapshotVerifie
 }
 
 func (self *SnapshotVerifier) VerifyNetSb(block *ledger.SnapshotBlock) error {
-	if err := self.verifyDataValidity(block); err != nil {
+	if err := self.verifyTimestamp(block); err != nil {
 		return err
 	}
-	if err := self.verifyTimestamp(block); err != nil {
+	if err := self.verifyDataValidity(block); err != nil {
 		return err
 	}
 	return nil
@@ -50,6 +50,10 @@ func (self *SnapshotVerifier) verifyDataValidity(block *ledger.SnapshotBlock) er
 	computedHash := block.ComputeHash()
 	if block.Hash.IsZero() || computedHash != block.Hash {
 		return ErrVerifyHashFailed
+	}
+
+	if self.reader.IsGenesisSnapshotBlock(block) {
+		return nil
 	}
 
 	if len(block.Signature) == 0 || len(block.PublicKey) == 0 {
@@ -78,15 +82,6 @@ func (self *SnapshotVerifier) verifySelf(block *ledger.SnapshotBlock, stat *Snap
 func (self *SnapshotVerifier) verifyAccounts(block *ledger.SnapshotBlock, prev *ledger.SnapshotBlock, stat *SnapshotBlockVerifyStat) error {
 	defer monitor.LogTime("verify", "snapshotAccounts", time.Now())
 
-	trie, err := self.reader.GenStateTrie(prev.StateHash, block.SnapshotContent)
-	if err != nil {
-		return err
-	}
-	if *trie.Hash() != block.StateHash {
-		return errors.New("state hash is not equals.")
-	}
-	block.StateTrie = trie
-
 	for addr, b := range block.SnapshotContent {
 		hash, e := self.reader.GetAccountBlockHashByHeight(&addr, b.Height)
 		if e != nil {
@@ -103,6 +98,20 @@ func (self *SnapshotVerifier) verifyAccounts(block *ledger.SnapshotBlock, prev *
 				addr.String(), b.Height, b.Hash))
 		}
 	}
+	for _, v := range stat.results {
+		if v != SUCCESS {
+			return nil
+		}
+	}
+
+	trie, err := self.reader.GenStateTrie(prev.StateHash, block.SnapshotContent)
+	if err != nil {
+		return err
+	}
+	if *trie.Hash() != block.StateHash {
+		return errors.New("state hash is not equals.")
+	}
+	block.StateTrie = trie
 	return nil
 }
 
@@ -116,8 +125,8 @@ func (self *SnapshotVerifier) verifyAccountsTimeout(block *ledger.SnapshotBlock,
 		return errors.New(fmt.Sprintf("block is not next. prevHash:%s, headHash:%s", block.PrevHash, head.Hash))
 	}
 
-	for addr, _ := range block.SnapshotContent {
-		_, err := self.VerifyAccountTimeout(addr, block.Height)
+	for addr, hashH := range block.SnapshotContent {
+		_, err := self.VerifyAccountTimeout(addr, hashH, block.Height)
 		if err != nil {
 			stat.result = FAIL
 			return err
@@ -126,7 +135,8 @@ func (self *SnapshotVerifier) verifyAccountsTimeout(block *ledger.SnapshotBlock,
 	return nil
 }
 
-func (self *SnapshotVerifier) VerifyAccountTimeout(addr types.Address, snapshotHeight uint64) (*ledger.HashHeight, error) {
+func (self *SnapshotVerifier) VerifyAccountTimeout(addr types.Address, hashH *ledger.HashHeight, snapshotHeight uint64) (*ledger.HashHeight, error) {
+
 	defer monitor.LogTime("verify", "accountTimeout", time.Now())
 
 	first, e := self.reader.GetFirstConfirmedAccountBlockBySbHeight(snapshotHeight, &addr)
@@ -135,9 +145,12 @@ func (self *SnapshotVerifier) VerifyAccountTimeout(addr types.Address, snapshotH
 	}
 
 	if first == nil {
+		if hashH != nil {
+			return nil, errors.Errorf("account block[%s:%d:%s] is nil.", addr, hashH.Height, hashH.Hash)
+		}
 		return nil, errors.New("account block is nil.")
 	}
-	refer, e := self.reader.GetSnapshotBlockByHash(&first.SnapshotHash)
+	refer, e := self.reader.GetSnapshotBlockHeadByHash(&first.SnapshotHash)
 
 	if e != nil {
 		return nil, e

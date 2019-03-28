@@ -3,6 +3,10 @@ package node
 import (
 	"encoding/hex"
 	"fmt"
+	"github.com/vitelabs/go-vite/common/types"
+	"github.com/vitelabs/go-vite/metrics"
+	"github.com/vitelabs/go-vite/metrics/influxdb"
+	"github.com/vitelabs/go-vite/rpcapi/api/filters"
 	"net"
 	"net/url"
 	"os"
@@ -10,8 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/vitelabs/go-vite/common/types"
+	"time"
 
 	"github.com/pkg/errors"
 
@@ -47,6 +50,10 @@ type Node struct {
 	viteConfig *config.Config
 	viteServer *vite.Vite
 
+	// metrics
+	metricsConfig *metrics.Config
+	ifxReporter   *influxdb.Reporter
+
 	// List of APIs currently provided by the node
 	rpcAPIs          []rpc.API
 	inProcessHandler *rpc.Server
@@ -74,14 +81,15 @@ type Node struct {
 
 func New(conf *Config) (*Node, error) {
 	return &Node{
-		config:       conf,
-		walletConfig: conf.makeWalletConfig(),
-		p2pConfig:    conf.makeP2PConfig(),
-		viteConfig:   conf.makeViteConfig(),
-		ipcEndpoint:  conf.IPCEndpoint(),
-		httpEndpoint: conf.HTTPEndpoint(),
-		wsEndpoint:   conf.WSEndpoint(),
-		stop:         make(chan struct{}),
+		config:        conf,
+		walletConfig:  conf.makeWalletConfig(),
+		p2pConfig:     conf.makeP2PConfig(),
+		viteConfig:    conf.makeViteConfig(),
+		metricsConfig: conf.makeMetricsConfig(),
+		ipcEndpoint:   conf.IPCEndpoint(),
+		httpEndpoint:  conf.HTTPEndpoint(),
+		wsEndpoint:    conf.WSEndpoint(),
+		stop:          make(chan struct{}),
 	}, nil
 }
 
@@ -169,6 +177,9 @@ func (node *Node) Start() error {
 	node.lock.Lock()
 	defer node.lock.Unlock()
 
+	// metrics start
+	node.startMetrics()
+
 	//p2p\vite start
 	log.Info(fmt.Sprintf("Begin Start Vite... "))
 	if err := node.startVite(); err != nil {
@@ -217,6 +228,10 @@ func (node *Node) Stop() error {
 		log.Error(fmt.Sprintf("Node stopVite error: %v", err))
 	}
 
+	// metrics influxdb reporter
+	log.Info(fmt.Sprintf("Begin Stop Metrics... "))
+	node.stopMetrics()
+
 	//rpc
 	log.Info(fmt.Sprintf("Begin Stop RPD... "))
 	if err := node.stopRPC(); err != nil {
@@ -256,6 +271,10 @@ func (node *Node) Config() *Config {
 	return node.config
 }
 
+func (node *Node) ViteConfig() *config.Config {
+	return node.viteConfig
+}
+
 func (node *Node) ViteServer() *vite.Vite {
 	return node.viteServer
 }
@@ -292,6 +311,46 @@ func (node *Node) startWallet() error {
 
 	return nil
 }
+func (node *Node) startMetrics() {
+	// init metrics args
+	metricsCfg := node.metricsConfig
+	if metricsCfg == nil {
+		return
+	}
+	if metricsCfg.IsInfluxDBEnable == false || metricsCfg.InfluxDBInfo == nil {
+		log.Info("influxdb export disable or influxdbinfo of reporter is not complete")
+		metricsCfg.IsInfluxDBEnable = false
+	}
+
+	metrics.InitMetrics(metricsCfg.IsEnable, metricsCfg.IsInfluxDBEnable)
+
+	if metrics.MetricsEnabled {
+		log.Info("start metrics collection")
+		go metrics.CollectProcessMetrics(3 * time.Second)
+
+		if metrics.InfluxDBExportEnable {
+			influxDBInfo := metricsCfg.InfluxDBInfo
+
+			rp, err := influxdb.NewReporter(metrics.DefaultRegistry, 10*time.Second,
+				influxDBInfo.Endpoint, influxDBInfo.Database, influxDBInfo.Username, influxDBInfo.Password,
+				"monitor", map[string]string{"host": influxDBInfo.HostTag})
+			if err != nil || rp == nil {
+				log.Error(fmt.Sprintf("new influxdb reporter err: %v", err))
+				return
+			}
+			node.ifxReporter = rp
+			log.Info("start influxdb export")
+			node.ifxReporter.Start()
+		}
+	}
+}
+
+func (node *Node) stopMetrics() {
+	if node.ifxReporter != nil {
+		log.Info("stop influxdb export")
+		node.ifxReporter.Stop()
+	}
+}
 
 func (node *Node) startVite() error {
 	return node.viteServer.Start(node.p2pServer)
@@ -300,11 +359,17 @@ func (node *Node) startVite() error {
 func (node *Node) startRPC() error {
 
 	// Init rpc log
-	rpcapi.Init(node.config.DataDir, node.config.LogLevel, node.config.TestTokenHexPrivKey, node.config.TestTokenTti)
+	rpcapi.Init(node.config.DataDir, node.config.LogLevel, node.config.TestTokenHexPrivKey, node.config.TestTokenTti, node.config.NetID)
 
 	// Start the various API endpoints, terminating all in case of errors
 	if err := node.startInProcess(node.GetInProcessApis()); err != nil {
 		return err
+	}
+
+	// start event system
+	if node.config.SubscribeEnabled {
+		filters.Es = filters.NewEventSystem(node.Vite())
+		filters.Es.Start()
 	}
 
 	// Start rpc
@@ -402,6 +467,9 @@ func (node *Node) stopRPC() error {
 	node.stopWS()
 	node.stopHTTP()
 	node.stopIPC()
+	if filters.Es != nil {
+		filters.Es.Stop()
+	}
 	return nil
 }
 

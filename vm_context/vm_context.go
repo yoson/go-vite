@@ -2,6 +2,10 @@ package vm_context
 
 import (
 	"bytes"
+	"fmt"
+	"math/big"
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/ledger"
@@ -9,8 +13,6 @@ import (
 	"github.com/vitelabs/go-vite/trie"
 	"github.com/vitelabs/go-vite/vm/contracts/abi"
 	"github.com/vitelabs/go-vite/vm_context/vmctxt_interface"
-	"math/big"
-	"time"
 )
 
 var (
@@ -28,6 +30,7 @@ type VmContext struct {
 
 	currentSnapshotBlock *ledger.SnapshotBlock
 	prevAccountBlock     *ledger.AccountBlock
+	snapshotTrie         *trie.Trie
 	trie                 *trie.Trie
 
 	unsavedCache *UnsavedCache
@@ -89,6 +92,7 @@ func NewVmContext(chain Chain, snapshotBlockHash *types.Hash, prevAccountBlockHa
 	} else if *prevAccountBlockHash != types.ZERO_HASH {
 		var err error
 		prevAccountBlock, err = chain.GetAccountBlockByHash(prevAccountBlockHash)
+
 		if err != nil {
 			return nil, err
 		}
@@ -118,6 +122,21 @@ func NewVmContext(chain Chain, snapshotBlockHash *types.Hash, prevAccountBlockHa
 	vmContext.unsavedCache = NewUnsavedCache(vmContext.trie)
 
 	return vmContext, nil
+}
+
+func (context *VmContext) getSnapshotTrie() *trie.Trie {
+	if context.snapshotTrie == nil {
+		snapshotTrie := context.chain.GetStateTrie(&context.currentSnapshotBlock.StateHash)
+		if snapshotTrie == nil {
+			err := errors.New(fmt.Sprintf("vmContext.snapshotTrie is nil, snapshot block height is %d, snapshot block hash is %s",
+				context.currentSnapshotBlock.Height, context.currentSnapshotBlock.Hash))
+			context.log.Error(err.Error(), "method", "NewVmContext")
+			panic(err)
+		}
+		context.snapshotTrie = snapshotTrie
+	}
+
+	return context.snapshotTrie
 }
 
 func (context *VmContext) CopyAndFreeze() vmctxt_interface.VmDatabase {
@@ -301,13 +320,20 @@ func (context *VmContext) GetStorage(addr *types.Address, key []byte) []byte {
 		}
 		return context.trie.GetValue(key)
 	} else if context.chain != nil {
-		latestAccountBlock, _ := context.chain.GetConfirmAccountBlock(context.currentSnapshotBlock.Height, addr)
-		if latestAccountBlock != nil {
-			trie := context.chain.GetStateTrie(&latestAccountBlock.StateHash)
+		snapshotTrie := context.getSnapshotTrie()
+		stateHashBytes := snapshotTrie.GetValue(addr.Bytes())
+
+		if len(stateHashBytes) > 0 {
+			stateHash, _ := types.BytesToHash(stateHashBytes)
+			trie := context.chain.GetStateTrie(&stateHash)
 			return trie.GetValue(key)
 		}
 	}
 	return nil
+}
+
+func (context *VmContext) GetOriginalStorage(key []byte) []byte {
+	return context.trie.GetValue(key)
 }
 
 func (context *VmContext) GetStorageHash() *types.Hash {
@@ -334,6 +360,10 @@ func (context *VmContext) GetLogListHash() *types.Hash {
 	return context.unsavedCache.logList.Hash()
 }
 
+func (context *VmContext) GetLogList() ledger.VmLogList {
+	return context.unsavedCache.logList
+}
+
 func (context *VmContext) GetOneHourQuota() (uint64, error) {
 	quota, err := context.chain.SaList().GetAggregateQuota(context.currentSnapshotBlock)
 	if err != nil {
@@ -348,11 +378,34 @@ func (context *VmContext) IsAddressExisted(addr *types.Address) bool {
 		return false
 	}
 
-	account, _ := context.chain.GetAccount(addr)
-	if account == nil {
+	if context.isSelf(addr) {
+		if context.prevAccountBlock != nil {
+			return true
+		}
+	} else {
+		firstBlock, err := context.chain.GetAccountBlockByHeight(addr, 1)
+		if err != nil {
+			panic(err)
+		}
+		if firstBlock == nil {
+			return false
+		}
+
+		confirmedSnapshotBlock, err := context.chain.GetConfirmBlock(&firstBlock.Hash)
+		if err != nil {
+			panic(err)
+		}
+		if confirmedSnapshotBlock == nil {
+			return false
+		}
+
+		if confirmedSnapshotBlock.Height > 0 && confirmedSnapshotBlock.Height <= context.currentSnapshotBlock.Height {
+			return true
+		}
 		return false
 	}
-	return true
+
+	return false
 }
 
 func (context *VmContext) GetAccountBlockByHash(hash *types.Hash) *ledger.AccountBlock {
@@ -364,14 +417,31 @@ func (context *VmContext) GetAccountBlockByHash(hash *types.Hash) *ledger.Accoun
 	accountBlock, _ := context.chain.GetAccountBlockByHash(hash)
 	return accountBlock
 }
+func (context *VmContext) GetSelfAccountBlockByHeight(height uint64) *ledger.AccountBlock {
+	if context.address == nil || context.prevAccountBlock == nil {
+		return nil
+	}
+	if context.chain == nil {
+		context.log.Error("context.chain is nil", "method", "GetSelfAccountBlockByHeight")
+		return nil
+	}
+	accountBlock, _ := context.chain.GetAccountBlockByHeight(context.address, height)
+	if accountBlock == nil || accountBlock.Height > context.prevAccountBlock.Height {
+		return nil
+	}
+	return accountBlock
+}
 
 func (context *VmContext) NewStorageIterator(addr *types.Address, prefix []byte) vmctxt_interface.StorageIterator {
 	if context.isSelf(addr) {
 		return NewStorageIterator(context.unsavedCache.Trie(), prefix)
 	} else {
-		latestAccountBlock, _ := context.chain.GetConfirmAccountBlock(context.currentSnapshotBlock.Height, addr)
-		if latestAccountBlock != nil {
-			trie := context.chain.GetStateTrie(&latestAccountBlock.StateHash)
+		snapshotTrie := context.getSnapshotTrie()
+		stateHashBytes := snapshotTrie.GetValue(addr.Bytes())
+
+		if len(stateHashBytes) > 0 {
+			stateHash, _ := types.BytesToHash(stateHashBytes)
+			trie := context.chain.GetStateTrie(&stateHash)
 			return NewStorageIterator(trie, prefix)
 		}
 	}
@@ -390,10 +460,23 @@ func (context *VmContext) GetStorageBySnapshotHash(addr *types.Address, key []by
 		return context.GetStorage(addr, key)
 	}
 	if snapshotBlock := context.GetSnapshotBlockByHash(snapshotHash); snapshotBlock != nil {
-		if latestAccountBlock, _ := context.chain.GetConfirmAccountBlock(snapshotBlock.Height, addr); latestAccountBlock != nil {
-			trie := context.chain.GetStateTrie(&latestAccountBlock.StateHash)
+
+		snapshotTrie := context.chain.GetStateTrie(&snapshotBlock.StateHash)
+		if snapshotTrie == nil {
+			err := errors.New(fmt.Sprintf("vmContext.snapshotTrie is nil, snapshot block height is %d, snapshot block hash is %s",
+				snapshotBlock.Height, snapshotBlock.Hash))
+			context.log.Error(err.Error(), "method", "GetStorageBySnapshotHash")
+			panic(err)
+		}
+
+		stateHashBytes := snapshotTrie.GetValue(addr.Bytes())
+
+		if len(stateHashBytes) > 0 {
+			stateHash, _ := types.BytesToHash(stateHashBytes)
+			trie := context.chain.GetStateTrie(&stateHash)
 			return trie.GetValue(key)
 		}
+
 	}
 	return nil
 }
@@ -402,8 +485,19 @@ func (context *VmContext) NewStorageIteratorBySnapshotHash(addr *types.Address, 
 		return context.NewStorageIterator(addr, prefix)
 	}
 	if snapshotBlock := context.GetSnapshotBlockByHash(snapshotHash); snapshotBlock != nil {
-		if latestAccountBlock, _ := context.chain.GetConfirmAccountBlock(snapshotBlock.Height, addr); latestAccountBlock != nil {
-			trie := context.chain.GetStateTrie(&latestAccountBlock.StateHash)
+		snapshotTrie := context.chain.GetStateTrie(&snapshotBlock.StateHash)
+		if snapshotTrie == nil {
+			err := errors.New(fmt.Sprintf("vmContext.snapshotTrie is nil, snapshot block height is %d, snapshot block hash is %s",
+				snapshotBlock.Height, snapshotBlock.Hash))
+			context.log.Error(err.Error(), "method", "GetStorageBySnapshotHash")
+			panic(err)
+		}
+
+		stateHashBytes := snapshotTrie.GetValue(addr.Bytes())
+
+		if len(stateHashBytes) > 0 {
+			stateHash, _ := types.BytesToHash(stateHashBytes)
+			trie := context.chain.GetStateTrie(&stateHash)
 			return NewStorageIterator(trie, prefix)
 		}
 	}

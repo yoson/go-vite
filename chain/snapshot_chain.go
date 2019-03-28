@@ -8,6 +8,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/ledger"
+	"github.com/vitelabs/go-vite/monitor"
 	"github.com/vitelabs/go-vite/trie"
 )
 
@@ -16,6 +17,9 @@ func (c *chain) IsGenesisSnapshotBlock(block *ledger.SnapshotBlock) bool {
 }
 
 func (c *chain) GenStateTrie(prevStateHash types.Hash, snapshotContent ledger.SnapshotContent) (*trie.Trie, error) {
+	monitorTags := []string{"chain", "GenStateTrie"}
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	prevTrie := c.GetStateTrie(&prevStateHash)
 	if prevTrie == nil {
 		prevTrie = c.NewStateTrie()
@@ -34,6 +38,8 @@ func (c *chain) GenStateTrie(prevStateHash types.Hash, snapshotContent ledger.Sn
 			if block == nil {
 				err := errors.New(fmt.Sprintf("Block is not existed in need snapshot cache, blockHash is %s, blockHeight is %d, address is %s",
 					item.Hash, item.Height, addr))
+				c.log.Error(err.Error(), "method", "GenStateTrie")
+
 				return nil, err
 			}
 		}
@@ -44,11 +50,41 @@ func (c *chain) GenStateTrie(prevStateHash types.Hash, snapshotContent ledger.Sn
 	return currentTrie, nil
 }
 
+func (c *chain) GenStateTrieFromDb(prevStateHash types.Hash, snapshotContent ledger.SnapshotContent) (*trie.Trie, error) {
+	prevTrie := c.GetStateTrie(&prevStateHash)
+	if prevTrie == nil {
+		prevTrie = c.NewStateTrie()
+	}
+	currentTrie := prevTrie.Copy()
+	for addr, item := range snapshotContent {
+		block, err := c.chainDb.Ac.GetBlock(&item.Hash)
+		if err != nil {
+			c.log.Error("GetBlock failed, error is "+err.Error(), "method", "GenStateTrieFromDb")
+			return nil, err
+		}
+
+		if block == nil {
+			err := errors.New(fmt.Sprintf("Block is not existed in need snapshot cache, blockHash is %s, blockHeight is %d, address is %s",
+				item.Hash, item.Height, addr))
+			return nil, err
+		}
+
+		currentTrie.SetValue(addr.Bytes(), block.StateHash.Bytes())
+	}
+
+	return currentTrie, nil
+}
+
 func (c *chain) GetNeedSnapshotContent() ledger.SnapshotContent {
+	monitorTags := []string{"chain", "GetNeedSnapshotContent"}
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	return c.needSnapshotCache.GetSnapshotContent()
 }
 
 func (c *chain) InsertSnapshotBlock(snapshotBlock *ledger.SnapshotBlock) error {
+	monitorTags := []string{"chain", "InsertSnapshotBlock"}
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
 
 	batch := new(leveldb.Batch)
 
@@ -87,26 +123,9 @@ func (c *chain) InsertSnapshotBlock(snapshotBlock *ledger.SnapshotBlock) error {
 
 	// Save snapshot content
 	for _, accountBlockHashHeight := range snapshotBlock.SnapshotContent {
-		accountBlockMeta, blockMetaErr := c.chainDb.Ac.GetBlockMeta(&accountBlockHashHeight.Hash)
-		if blockMetaErr != nil {
-			c.log.Error("GetBlockMeta failed, error is "+blockMetaErr.Error(), "method", "InsertSnapshotBlock")
-			return blockMetaErr
-		}
-
-		if accountBlockMeta == nil {
-			err := errors.New("AccountBlockMeta is nil")
-			c.log.Error(err.Error(), "method", "InsertSnapshotBlock")
-			return err
-		}
-
-		if saveSendBlockMetaErr := c.chainDb.Ac.WriteBlockMeta(batch, &accountBlockHashHeight.Hash, accountBlockMeta); saveSendBlockMetaErr != nil {
-			c.log.Error("SaveBlockMeta failed, error is "+saveSendBlockMetaErr.Error(), "method", "InsertSnapshotBlock")
-			return blockMetaErr
-		}
-
 		if saveBeSnapshotErr := c.chainDb.Ac.WriteBeSnapshot(batch, &accountBlockHashHeight.Hash, snapshotBlock.Height); saveBeSnapshotErr != nil {
 			c.log.Error("SaveBeSnapshot failed, error is "+saveBeSnapshotErr.Error(), "method", "InsertSnapshotBlock")
-			return blockMetaErr
+			return saveBeSnapshotErr
 		}
 	}
 
@@ -168,6 +187,9 @@ func (c *chain) InsertSnapshotBlock(snapshotBlock *ledger.SnapshotBlock) error {
 }
 
 func (c *chain) GetSnapshotBlocksByHash(originBlockHash *types.Hash, count uint64, forward, containSnapshotContent bool) ([]*ledger.SnapshotBlock, error) {
+	monitorTags := []string{"chain", "GetSnapshotBlocksByHash"}
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	startHeight := uint64(1)
 	if originBlockHash != nil {
 		block, gsErr := c.GetSnapshotBlockByHash(originBlockHash)
@@ -188,6 +210,9 @@ func (c *chain) GetSnapshotBlocksByHash(originBlockHash *types.Hash, count uint6
 }
 
 func (c *chain) GetSnapshotBlocksByHeight(height uint64, count uint64, forward, containSnapshotContent bool) ([]*ledger.SnapshotBlock, error) {
+	monitorTags := []string{"chain", "GetSnapshotBlocksByHeight"}
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	blocks, gErr := c.chainDb.Sc.GetSnapshotBlocks(height, count, forward, containSnapshotContent)
 	if gErr != nil {
 		c.log.Error("GetSnapshotBlocks failed, error is "+gErr.Error(), "method", "GetSnapshotBlocksByHeight")
@@ -197,6 +222,9 @@ func (c *chain) GetSnapshotBlocksByHeight(height uint64, count uint64, forward, 
 }
 
 func (c *chain) GetSnapshotBlockHeadByHeight(height uint64) (*ledger.SnapshotBlock, error) {
+	monitorTags := []string{"chain", "GetSnapshotBlockHeadByHeight"}
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	block, gsbErr := c.chainDb.Sc.GetSnapshotBlock(height, false)
 	if gsbErr != nil {
 		c.log.Error("GetSnapshotBlock failed, error is "+gsbErr.Error(), "method", "GetSnapshotBlockHeadByHeight")
@@ -207,6 +235,9 @@ func (c *chain) GetSnapshotBlockHeadByHeight(height uint64) (*ledger.SnapshotBlo
 }
 
 func (c *chain) GetSnapshotBlockHeadByHash(hash *types.Hash) (*ledger.SnapshotBlock, error) {
+	monitorTags := []string{"chain", "GetSnapshotBlockHeadByHash"}
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	height, err := c.chainDb.Sc.GetSnapshotBlockHeight(hash)
 	if err != nil {
 		c.log.Error("GetSnapshotBlockHeight failed, error is "+err.Error(), "method", "GetSnapshotBlockHeadByHash")
@@ -220,6 +251,9 @@ func (c *chain) GetSnapshotBlockHeadByHash(hash *types.Hash) (*ledger.SnapshotBl
 }
 
 func (c *chain) GetSnapshotBlockByHeight(height uint64) (*ledger.SnapshotBlock, error) {
+	monitorTags := []string{"chain", "GetSnapshotBlockByHeight"}
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	block, gsbErr := c.chainDb.Sc.GetSnapshotBlock(height, true)
 	if gsbErr != nil {
 		c.log.Error("GetSnapshotBlock failed, error is "+gsbErr.Error(), "method", "GetSnapshotBlockByHeight")
@@ -230,6 +264,9 @@ func (c *chain) GetSnapshotBlockByHeight(height uint64) (*ledger.SnapshotBlock, 
 }
 
 func (c *chain) GetSnapshotBlockByHash(hash *types.Hash) (*ledger.SnapshotBlock, error) {
+	monitorTags := []string{"chain", "GetSnapshotBlockByHash"}
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	height, err := c.chainDb.Sc.GetSnapshotBlockHeight(hash)
 	if err != nil {
 		c.log.Error("GetSnapshotBlockHeight failed, error is "+err.Error(), "method", "GetSnapshotBlockByHash")
@@ -251,6 +288,9 @@ func (c *chain) GetGenesisSnapshotBlock() *ledger.SnapshotBlock {
 }
 
 func (c *chain) GetConfirmBlock(accountBlockHash *types.Hash) (*ledger.SnapshotBlock, error) {
+	monitorTags := []string{"chain", "GetConfirmBlock"}
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	height, ghErr := c.chainDb.Ac.GetConfirmHeight(accountBlockHash)
 	if ghErr != nil {
 		c.log.Error("GetConfirmHeight failed, error is "+ghErr.Error(), "method", "GetConfirmBlock")
@@ -271,6 +311,9 @@ func (c *chain) GetConfirmBlock(accountBlockHash *types.Hash) (*ledger.SnapshotB
 }
 
 func (c *chain) GetConfirmTimes(accountBlockHash *types.Hash) (uint64, error) {
+	monitorTags := []string{"chain", "GetConfirmTimes"}
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	height, ghErr := c.chainDb.Ac.GetConfirmHeight(accountBlockHash)
 	if ghErr != nil {
 		c.log.Error("GetConfirmHeight failed, error is "+ghErr.Error(), "method", "GetConfirmTimes")
@@ -332,6 +375,9 @@ func (c *chain) binarySearchBeforeTime(start, end *ledger.SnapshotBlock, blockCr
 }
 
 func (c *chain) GetSnapshotBlockBeforeTime(blockCreatedTime *time.Time) (*ledger.SnapshotBlock, error) {
+	monitorTags := []string{"chain", "GetSnapshotBlockBeforeTime"}
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	// normal logic
 	start := c.GetGenesisSnapshotBlock()
 	end := c.GetLatestSnapshotBlock()
@@ -346,6 +392,9 @@ func (c *chain) GetSnapshotBlockBeforeTime(blockCreatedTime *time.Time) (*ledger
 }
 
 func (c *chain) GetConfirmAccountBlock(snapshotHeight uint64, address *types.Address) (*ledger.AccountBlock, error) {
+	monitorTags := []string{"chain", "GetConfirmAccountBlock"}
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	account, getAccountIdErr := c.chainDb.Account.GetAccountByAddress(address)
 	if getAccountIdErr != nil {
 		c.log.Error("GetAccountByAddress failed, error is "+getAccountIdErr.Error(), "method", "GetConfirmAccountBlock")
@@ -394,11 +443,17 @@ func (c *chain) calculateNeedSnapshot(deleteSubLedger map[types.Address][]*ledge
 
 		if deletedAccountBlocks, ok := deleteSubLedger[addr]; ok {
 			tailDeletedBlockHeight := deletedAccountBlocks[0].Height
+			// all delete
+			if tailDeletedBlockHeight <= 1 {
+				continue
+			}
+
 			if headHeight >= tailDeletedBlockHeight {
 				headHeight = tailDeletedBlockHeight - 1
 			}
 			if tailHeight >= tailDeletedBlockHeight {
-				tailHeight = tailDeletedBlockHeight - 1
+				// now, tailHeight need be greater than headHeight
+				tailHeight = tailDeletedBlockHeight
 			}
 		}
 
@@ -413,54 +468,60 @@ func (c *chain) calculateNeedSnapshot(deleteSubLedger map[types.Address][]*ledge
 			// append
 			needSnapshotBlocks[account.AccountAddress] = append(needSnapshotBlocks[account.AccountAddress], block)
 		}
-		for h := tailHeight - 1; h > 0; h-- {
-			blockHash, blockHashErr := c.chainDb.Ac.GetHashByHeight(account.AccountId, h)
-			if blockHashErr != nil {
-				c.log.Error("GetHashByHeight failed, error is "+blockHashErr.Error(), "method", "calculateNeedSnapshot")
-				return nil, err
+		if tailHeight > 1 {
+			for h := tailHeight - 1; h > 0; h-- {
+				blockHash, blockHashErr := c.chainDb.Ac.GetHashByHeight(account.AccountId, h)
+				if blockHashErr != nil {
+					c.log.Error("GetHashByHeight failed, error is "+blockHashErr.Error(), "method", "calculateNeedSnapshot")
+					return nil, err
+				}
+
+				if blockHash == nil {
+					err := errors.New("blockHash is nil")
+					c.log.Error(err.Error(), "method", "calculateNeedSnapshot")
+					return nil, err
+				}
+
+				blockMeta, blockMetaErr := c.chainDb.Ac.GetBlockMeta(blockHash)
+				if blockMetaErr != nil {
+					c.log.Error("GetBlockMeta failed, error is "+blockMetaErr.Error(), "method", "calculateNeedSnapshot")
+					return nil, err
+				}
+
+				if blockMeta == nil {
+					err := errors.New("blockMeta is nil")
+					c.log.Error(err.Error(), "method", "calculateNeedSnapshot")
+					return nil, err
+				}
+
+				if blockMeta.SnapshotHeight > 0 {
+					break
+				}
+
+				block, blockErr := c.chainDb.Ac.GetBlockByHeight(account.AccountId, h)
+				if blockErr != nil {
+					c.log.Error("GetBlockByHeight failed, error is "+blockErr.Error(), "method", "calculateNeedSnapshot")
+					return nil, blockErr
+				}
+
+				c.completeBlock(block, account)
+
+				// prepend, less garbage
+				needSnapshotBlocks[account.AccountAddress] = append(needSnapshotBlocks[account.AccountAddress], nil)
+				copy(needSnapshotBlocks[account.AccountAddress][1:], needSnapshotBlocks[account.AccountAddress])
+				needSnapshotBlocks[account.AccountAddress][0] = block
 			}
-
-			if blockHash == nil {
-				err := errors.New("blockHash is nil")
-				c.log.Error(err.Error(), "method", "calculateNeedSnapshot")
-				return nil, err
-			}
-
-			blockMeta, blockMetaErr := c.chainDb.Ac.GetBlockMeta(blockHash)
-			if blockMetaErr != nil {
-				c.log.Error("GetBlockMeta failed, error is "+blockMetaErr.Error(), "method", "calculateNeedSnapshot")
-				return nil, err
-			}
-
-			if blockMeta == nil {
-				err := errors.New("blockMeta is nil")
-				c.log.Error(err.Error(), "method", "calculateNeedSnapshot")
-				return nil, err
-			}
-
-			if blockMeta.SnapshotHeight > 0 {
-				break
-			}
-
-			block, blockErr := c.chainDb.Ac.GetBlockByHeight(account.AccountId, h)
-			if blockErr != nil {
-				c.log.Error("GetBlockByHeight failed, error is "+blockErr.Error(), "method", "calculateNeedSnapshot")
-				return nil, blockErr
-			}
-
-			c.completeBlock(block, account)
-
-			// prepend, less garbage
-			needSnapshotBlocks[account.AccountAddress] = append(needSnapshotBlocks[account.AccountAddress], nil)
-			copy(needSnapshotBlocks[account.AccountAddress][1:], needSnapshotBlocks[account.AccountAddress])
-			needSnapshotBlocks[account.AccountAddress][0] = block
 		}
+
 	}
 	return needSnapshotBlocks, nil
 }
 
 // Contains to height
 func (c *chain) DeleteSnapshotBlocksToHeight(toHeight uint64) ([]*ledger.SnapshotBlock, map[types.Address][]*ledger.AccountBlock, error) {
+	monitorTags := []string{"chain", "DeleteSnapshotBlocksToHeight"}
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	if toHeight <= 0 || toHeight > c.GetLatestSnapshotBlock().Height {
 		return nil, nil, nil
 	}
@@ -560,7 +621,7 @@ func (c *chain) DeleteSnapshotBlocksToHeight(toHeight uint64) ([]*ledger.Snapsho
 	}
 
 	// Delete sa list cache
-	if deleteErr := c.saList.DeleteStartWith(snapshotBlocks[0]); deleteErr != nil {
+	if deleteErr := c.saList.DeleteStartWith(batch, snapshotBlocks[0]); deleteErr != nil {
 		c.log.Crit("c.saList.DeleteStartWith failed, error is "+deleteErr.Error(), "method", "DeleteSnapshotBlocksByHeight")
 	}
 
@@ -590,7 +651,12 @@ func (c *chain) DeleteSnapshotBlocksToHeight(toHeight uint64) ([]*ledger.Snapsho
 }
 
 func (c *chain) CheckNeedSnapshotCache(content ledger.SnapshotContent) bool {
+
+	monitorTags := []string{"chain", "CheckNeedSnapshotCache"}
+	defer monitor.LogTimerConsuming(monitorTags, time.Now())
+
 	unconfirmedSubLedger, err := c.GetUnConfirmedSubLedger()
+
 	if err != nil {
 		c.log.Error("getUnConfirmedSubLedger failed, error is "+err.Error(), "method", "checkNeedSnapshotCache")
 	}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/vitelabs/go-vite/common/fork"
+
 	"github.com/vitelabs/go-vite/common/types"
 	"github.com/vitelabs/go-vite/ledger"
 	"github.com/vitelabs/go-vite/log15"
@@ -119,14 +120,16 @@ func (gen *Generator) GenerateWithBlock(block *ledger.AccountBlock, signFunc Sig
 }
 
 func (gen *Generator) generateBlock(block *ledger.AccountBlock, sendBlock *ledger.AccountBlock, producer types.Address, signFunc SignFunc) (result *GenResult, resultErr error) {
-	gen.log.Info("generateBlock", "BlockType", block.BlockType)
+	var oLog = gen.log.New("method", "generateBlock")
 	defer func() {
 		if err := recover(); err != nil {
 			errDetail := fmt.Sprintf("block(addr:%v prevHash:%v sbHash:%v )", block.AccountAddress, block.PrevHash, block.SnapshotHash)
 			if sendBlock != nil {
 				errDetail += fmt.Sprintf("sendBlock(addr:%v hash:%v)", block.AccountAddress, block.Hash)
 			}
-			gen.log.Error(fmt.Sprintf("generator_vm panic error %v", err), "detail", errDetail)
+
+			oLog.Error(fmt.Sprintf("generator_vm panic error %v", err), "detail", errDetail)
+
 			result = &GenResult{}
 			resultErr = errors.New("generator_vm panic error")
 		}
@@ -146,6 +149,11 @@ func (gen *Generator) generateBlock(block *ledger.AccountBlock, sendBlock *ledge
 					v.AccountBlock.PublicKey = publicKey
 				}
 			} else {
+				if v.AccountBlock.Height != blockList[k-1].AccountBlock.Height+1 {
+					oLog.Error(fmt.Sprintf("recv(%v,%v), vmsend[%v]=%v",
+						blockList[0].AccountBlock.Hash, blockList[0].AccountBlock.Height, k-1, v.AccountBlock.Height), "err", "vm result height conflict")
+					v.AccountBlock.Height = blockList[k-1].AccountBlock.Height + 1
+				}
 				v.AccountBlock.PrevHash = blockList[k-1].AccountBlock.Hash
 				v.AccountBlock.Hash = v.AccountBlock.ComputeHash()
 			}
