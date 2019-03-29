@@ -197,21 +197,44 @@ func exportConsensusGroupBalanceAndStorage(m map[types.Address]*big.Int, sm map[
 			panic(err)
 		}
 		cabi.ABIConsensusGroup.UnpackVariable(old, cabi.VariableNameConsensusGroupInfo, value)
-		newValue, err := ABIConsensusGroupNew.PackVariable(
-			"consensusGroupInfo",
-			old.NodeCount,
-			old.Interval,
-			old.PerCount,
-			old.RandCount,
-			old.RandRank,
-			old.CountingTokenId,
-			old.RegisterConditionId,
-			newParam,
-			old.VoteConditionId,
-			old.VoteConditionParam,
-			old.Owner,
-			old.PledgeAmount,
-			old.WithdrawHeight)
+		var newValue []byte
+		if gid := cabi.GetGidFromConsensusGroupKey(key); gid == types.SNAPSHOT_GID {
+			newValue, err = ABIConsensusGroupNew.PackVariable(
+				"consensusGroupInfo",
+				old.NodeCount,
+				old.Interval,
+				old.PerCount,
+				old.RandCount,
+				old.RandRank,
+				uint16(1),
+				uint8(0),
+				old.CountingTokenId,
+				old.RegisterConditionId,
+				newParam,
+				old.VoteConditionId,
+				old.VoteConditionParam,
+				old.Owner,
+				old.PledgeAmount,
+				old.WithdrawHeight)
+		} else {
+			newValue, err = ABIConsensusGroupNew.PackVariable(
+				"consensusGroupInfo",
+				old.NodeCount,
+				old.Interval,
+				old.PerCount,
+				old.RandCount,
+				old.RandRank,
+				uint16(48),
+				uint8(1),
+				old.CountingTokenId,
+				old.RegisterConditionId,
+				newParam,
+				old.VoteConditionId,
+				old.VoteConditionParam,
+				old.Owner,
+				old.PledgeAmount,
+				old.WithdrawHeight)
+		}
 		if err != nil {
 			panic(err)
 		}
@@ -290,10 +313,10 @@ const (
 	]`
 	jsonConsensusGroup = `
 	[
-		{"type":"function","name":"CreateConsensusGroup", "inputs":[{"name":"gid","type":"gid"},{"name":"nodeCount","type":"uint8"},{"name":"interval","type":"int64"},{"name":"perCount","type":"int64"},{"name":"randCount","type":"uint8"},{"name":"randRank","type":"uint8"},{"name":"countingTokenId","type":"tokenId"},{"name":"registerConditionId","type":"uint8"},{"name":"registerConditionParam","type":"bytes"},{"name":"voteConditionId","type":"uint8"},{"name":"voteConditionParam","type":"bytes"}]},
+		{"type":"function","name":"CreateConsensusGroup", "inputs":[{"name":"gid","type":"gid"},{"name":"nodeCount","type":"uint8"},{"name":"interval","type":"int64"},{"name":"perCount","type":"int64"},{"name":"randCount","type":"uint8"},{"name":"randRank","type":"uint8"},{"name":"repeat","type":"uint16"},{"name":"checkLevel","type":"uint8"},{"name":"countingTokenId","type":"tokenId"},{"name":"registerConditionId","type":"uint8"},{"name":"registerConditionParam","type":"bytes"},{"name":"voteConditionId","type":"uint8"},{"name":"voteConditionParam","type":"bytes"}]},
 		{"type":"function","name":"CancelConsensusGroup", "inputs":[{"name":"gid","type":"gid"}]},
 		{"type":"function","name":"ReCreateConsensusGroup", "inputs":[{"name":"gid","type":"gid"}]},
-		{"type":"variable","name":"consensusGroupInfo","inputs":[{"name":"nodeCount","type":"uint8"},{"name":"interval","type":"int64"},{"name":"perCount","type":"int64"},{"name":"randCount","type":"uint8"},{"name":"randRank","type":"uint8"},{"name":"countingTokenId","type":"tokenId"},{"name":"registerConditionId","type":"uint8"},{"name":"registerConditionParam","type":"bytes"},{"name":"voteConditionId","type":"uint8"},{"name":"voteConditionParam","type":"bytes"},{"name":"owner","type":"address"},{"name":"pledgeAmount","type":"uint256"},{"name":"withdrawHeight","type":"uint64"}]},
+		{"type":"variable","name":"consensusGroupInfo","inputs":[{"name":"nodeCount","type":"uint8"},{"name":"interval","type":"int64"},{"name":"perCount","type":"int64"},{"name":"randCount","type":"uint8"},{"name":"randRank","type":"uint8"},{"name":"repeat","type":"uint16"},{"name":"checkLevel","type":"uint8"},{"name":"countingTokenId","type":"tokenId"},{"name":"registerConditionId","type":"uint8"},{"name":"registerConditionParam","type":"bytes"},{"name":"voteConditionId","type":"uint8"},{"name":"voteConditionParam","type":"bytes"},{"name":"owner","type":"address"},{"name":"pledgeAmount","type":"uint256"},{"name":"withdrawHeight","type":"uint64"}]},
 		{"type":"variable","name":"registerOfPledge","inputs":[{"name":"pledgeAmount","type":"uint256"},{"name":"pledgeToken","type":"tokenId"},{"name":"pledgeHeight","type":"uint64"}]},
 		
 		{"type":"function","name":"Register", "inputs":[{"name":"gid","type":"gid"},{"name":"name","type":"string"},{"name":"nodeAddr","type":"address"}]},
