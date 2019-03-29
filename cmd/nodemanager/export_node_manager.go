@@ -1,6 +1,7 @@
 package nodemanager
 
 import (
+	"encoding/hex"
 	"fmt"
 	"github.com/pkg/errors"
 	"github.com/vitelabs/go-vite/cmd/utils"
@@ -360,21 +361,31 @@ func (nodeManager *ExportNodeManager) printBalanceMap(balanceMap map[types.Addre
 }
 
 func (nodeManager *ExportNodeManager) printStorageMap(storageMap map[types.Address]map[string]string) {
+	fmt.Printf("\"ContractStorageMap\": {\n")
 	for addr, m := range storageMap {
-		fmt.Printf("addr: %v\n", addr.String())
+		fmt.Printf("\"%v\": {\n", addr.String())
 		for k, v := range m {
-			fmt.Printf("%v: %v\n", k, v)
+			fmt.Printf("\t\"%v\": \"%v\",\n", k, v)
 		}
+		fmt.Printf("},\n")
 	}
+	fmt.Printf("},\n")
 }
 
 func (nodeManager *ExportNodeManager) printLogMap(logMap map[types.Address]ledger.VmLogList) {
+	fmt.Printf("\"ContractLogsMap\": {\n")
 	for addr, list := range logMap {
-		fmt.Printf("addr: %v\n", addr.String())
+		fmt.Printf("\"%v\": [\n", addr.String())
 		for _, log := range list {
-			fmt.Printf("%v\n", log)
+			fmt.Printf("{\n\t\"Data\":\"%v\",\n\t\"Topics\":[", hex.EncodeToString(log.Data))
+			for _, topic := range log.Topics {
+				fmt.Printf("\n\t\t\"%v\",", topic.String())
+			}
+			fmt.Printf("\n\t]\n},\n")
 		}
+		fmt.Printf("],\n")
 	}
+	fmt.Printf("},\n")
 }
 
 func (nodeManager *ExportNodeManager) Stop() error {
