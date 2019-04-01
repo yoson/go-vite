@@ -42,6 +42,10 @@ type PledgeInfo struct {
 func GetPledgeBeneficialKey(beneficial types.Address) []byte {
 	return beneficial.Bytes()
 }
+func GetBeneficialFromPledgeBeneficialKey(key []byte) types.Address {
+	addr, _ := types.BytesToAddress(key)
+	return addr
+}
 func GetPledgeKey(addr types.Address, pledgeBeneficialKey []byte) []byte {
 	return append(addr.Bytes(), pledgeBeneficialKey...)
 }

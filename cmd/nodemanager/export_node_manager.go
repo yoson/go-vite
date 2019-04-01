@@ -3,6 +3,7 @@ package nodemanager
 import (
 	"encoding/hex"
 	"fmt"
+	"github.com/gin-gonic/gin/json"
 	"github.com/pkg/errors"
 	"github.com/vitelabs/go-vite/cmd/utils"
 	"github.com/vitelabs/go-vite/common/types"
@@ -65,8 +66,7 @@ func (nodeManager *ExportNodeManager) Start() error {
 
 	inAccountVCPBalanceMap := make(map[types.Address]*big.Int)
 	contractRevertBalanceMap := make(map[types.Address]*big.Int)
-	contractRevertStorageMap := make(map[types.Address]map[string]string) // <contractAddr - <key - value>>
-	contractRevertLogMap := make(map[types.Address]ledger.VmLogList)      // <contractAddr - <logList>>
+	genesis := &Genesis{}
 
 	onroadBalanceMap := make(map[types.Address]*big.Int)
 	onroadVCPBalanceMap := make(map[types.Address]*big.Int)
@@ -161,7 +161,7 @@ func (nodeManager *ExportNodeManager) Start() error {
 			inContractBalanceMap[addr] = balance
 
 			var err error
-			contractRevertBalanceMap, contractRevertStorageMap, contractRevertLogMap, err = exportContractBalanceAndStorage(contractRevertBalanceMap, contractRevertStorageMap, contractRevertLogMap, addr, balance, accountStateTrie, chainInstance)
+			contractRevertBalanceMap, genesis, err = exportContractBalanceAndStorage(contractRevertBalanceMap, genesis, addr, balance, accountStateTrie, chainInstance)
 			if err != nil {
 				return err
 			}
@@ -296,15 +296,9 @@ func (nodeManager *ExportNodeManager) Start() error {
 	nodeManager.printBalanceMap(sumVCPBalanceMap, "vcp")
 	fmt.Println("======sum vcp balance map======")
 
-	// TODO print contract storage map
-	contractRevertStorageMap = filterContractStorageMap(contractRevertStorageMap)
+	fmt.Println("======genesis======")
+	nodeManager.printGenesis(genesis)
 	fmt.Println("======contract storage map======")
-	nodeManager.printStorageMap(contractRevertStorageMap)
-	fmt.Println("======contract storage map======")
-
-	fmt.Println("======contract log map======")
-	nodeManager.printLogMap(contractRevertLogMap)
-	fmt.Println("======contract log map======")
 	return nil
 }
 
@@ -360,16 +354,9 @@ func (nodeManager *ExportNodeManager) printBalanceMap(balanceMap map[types.Addre
 
 }
 
-func (nodeManager *ExportNodeManager) printStorageMap(storageMap map[types.Address]map[string]string) {
-	fmt.Printf("\"ContractStorageMap\": {\n")
-	for addr, m := range storageMap {
-		fmt.Printf("\"%v\": {\n", addr.String())
-		for k, v := range m {
-			fmt.Printf("\t\"%v\": \"%v\",\n", k, v)
-		}
-		fmt.Printf("},\n")
-	}
-	fmt.Printf("},\n")
+func (nodeManager *ExportNodeManager) printGenesis(g *Genesis) {
+	v, _ := json.MarshalIndent(g, "", "\t")
+	fmt.Println(string(v))
 }
 
 func (nodeManager *ExportNodeManager) printLogMap(logMap map[types.Address]ledger.VmLogList) {

@@ -26,45 +26,50 @@ func isBalanceOrCode(key []byte) bool {
 
 var registerNameMap = make(map[string]string)
 
-func exportContractBalanceAndStorage(m map[types.Address]*big.Int, sm map[types.Address]map[string]string, lm map[types.Address]ledger.VmLogList, addr types.Address, balance *big.Int, trie *trie.Trie, c chain.Chain) (map[types.Address]*big.Int, map[types.Address]map[string]string, map[types.Address]ledger.VmLogList, error) {
+func exportContractBalanceAndStorage(m map[types.Address]*big.Int, g *Genesis, addr types.Address, balance *big.Int, trie *trie.Trie, c chain.Chain) (map[types.Address]*big.Int, *Genesis, error) {
 	if addr == types.AddressRegister {
-		m, sm, lm = exportRegisterBalanceAndStorage(m, sm, lm, trie)
-		return m, sm, lm, nil
+		m, g = exportRegisterBalanceAndStorage(m, g, trie)
+		return m, g, nil
 	} else if addr == types.AddressPledge {
-		m, sm, lm = exportPledgeBalanceAndStorage(m, sm, lm, trie)
-		return m, sm, lm, nil
+		m, g = exportPledgeBalanceAndStorage(m, g, trie)
+		return m, g, nil
 	} else if addr == types.AddressMintage {
-		m, sm, lm = exportMintageBalanceAndStorage(m, sm, lm, trie)
-		return m, sm, lm, nil
+		m, g = exportMintageBalanceAndStorage(m, g, trie)
+		return m, g, nil
 	} else if addr == types.AddressVote {
-		m, sm, lm = exportVoteBalanceAndStorage(m, sm, lm, trie)
-		return m, sm, lm, nil
+		m, g = exportVoteBalanceAndStorage(m, g, trie)
+		return m, g, nil
 	} else if addr == types.AddressConsensusGroup {
-		m, sm, lm = exportConsensusGroupBalanceAndStorage(m, sm, lm, trie)
-		return m, sm, lm, nil
+		m, g = exportConsensusGroupBalanceAndStorage(m, g, trie)
+		return m, g, nil
 	} else {
 		// for other contract, return to creator
 		responseBlock, err := c.GetAccountBlockByHeight(&addr, 1)
 		if err != nil {
-			return m, sm, lm, err
+			return m, g, err
 		}
 		requestBlock, err := c.GetAccountBlockByHash(&responseBlock.FromBlockHash)
 		if err != nil {
-			return m, sm, lm, err
+			return m, g, err
 		}
 		m = updateBalance(m, requestBlock.AccountAddress, new(big.Int).Add(requestBlock.Fee, balance))
-		return m, sm, lm, err
+		return m, g, err
 	}
 }
 
 var (
 	newPledgeAmount    = new(big.Int).Mul(big.NewInt(100000), big.NewInt(1e18))
-	refundPledgeAmount = new(big.Int).Mul(big.NewInt(500000), big.NewInt(1e18))
+	refundPledgeAmount = new(big.Int).Mul(big.NewInt(400000), big.NewInt(1e18))
 	newWithdrawHeight  = uint64(7776000)
 	rewardTime         = int64(1)
 )
 
-func exportRegisterBalanceAndStorage(m map[types.Address]*big.Int, sm map[types.Address]map[string]string, lm map[types.Address]ledger.VmLogList, trie *trie.Trie) (map[types.Address]*big.Int, map[types.Address]map[string]string, map[types.Address]ledger.VmLogList) {
+func exportRegisterBalanceAndStorage(m map[types.Address]*big.Int, g *Genesis, trie *trie.Trie) (map[types.Address]*big.Int, *Genesis) {
+	if g.ConsensusGroupInfo == nil {
+		g.ConsensusGroupInfo = &ConsensusGroupContractInfo{}
+	}
+	g.ConsensusGroupInfo.RegistrationInfoMap = make(map[string]map[string]RegistrationInfo)
+	g.ConsensusGroupInfo.HisNameMap = make(map[string]map[string]string)
 	iter := trie.NewIterator(nil)
 	for {
 		key, value, ok := iter.Next()
@@ -82,20 +87,28 @@ func exportRegisterBalanceAndStorage(m map[types.Address]*big.Int, sm map[types.
 			}
 			registerNameMap[old.Name] = ""
 			gid := cabi.GetGidFromRegisterKey(key)
-			newValue, err := ABIConsensusGroupNew.PackVariable("registration", old.Name, old.NodeAddr, old.PledgeAddr, newPledgeAmount, newWithdrawHeight, rewardTime, int64(0), []types.Address{old.NodeAddr})
-			if err != nil {
-				panic(err)
+			gidStr := gid.String()
+			if _, ok := g.ConsensusGroupInfo.RegistrationInfoMap[gidStr]; !ok {
+				g.ConsensusGroupInfo.RegistrationInfoMap[gidStr] = make(map[string]RegistrationInfo)
 			}
-			sm = updateStorage(sm, types.AddressConsensusGroup, append(gid.Bytes(), types.DataHash([]byte(old.Name)).Bytes()[types.GidSize:]...), newValue)
-			newHisNameValue, err := ABIConsensusGroupNew.PackVariable("hisName", old.Name)
-			sm = updateStorage(sm, types.AddressConsensusGroup, append(old.NodeAddr.Bytes(), gid.Bytes()...), newHisNameValue)
-			m = updateBalance(m, old.PledgeAddr, refundPledgeAmount)
+			g.ConsensusGroupInfo.RegistrationInfoMap[gidStr][old.Name] = RegistrationInfo{
+				old.NodeAddr, old.PledgeAddr, newPledgeAmount, newWithdrawHeight, rewardTime, int64(0), []types.Address{old.NodeAddr},
+			}
+			if _, ok := g.ConsensusGroupInfo.HisNameMap[gidStr]; !ok {
+				g.ConsensusGroupInfo.HisNameMap[gidStr] = make(map[string]string)
+			}
+			g.ConsensusGroupInfo.HisNameMap[gidStr][old.NodeAddr.String()] = old.Name
 		}
 	}
-	return m, sm, lm
+	return m, g
 }
 
-func exportPledgeBalanceAndStorage(m map[types.Address]*big.Int, sm map[types.Address]map[string]string, lm map[types.Address]ledger.VmLogList, trie *trie.Trie) (map[types.Address]*big.Int, map[types.Address]map[string]string, map[types.Address]ledger.VmLogList) {
+func exportPledgeBalanceAndStorage(m map[types.Address]*big.Int, g *Genesis, trie *trie.Trie) (map[types.Address]*big.Int, *Genesis) {
+	if g.PledgeInfo == nil {
+		g.PledgeInfo = &PledgeContractInfo{}
+	}
+	g.PledgeInfo.PledgeInfoMap = make(map[string]PledgeInfo)
+	g.PledgeInfo.PledgeBeneficialMap = make(map[string]*big.Int)
 	iter := trie.NewIterator(nil)
 	for {
 		key, value, ok := iter.Next()
@@ -108,22 +121,27 @@ func exportPledgeBalanceAndStorage(m map[types.Address]*big.Int, sm map[types.Ad
 		if cabi.IsPledgeKey(key) {
 			old := new(cabi.PledgeInfo)
 			if err := cabi.ABIPledge.UnpackVariable(old, cabi.VariableNamePledgeInfo, value); err == nil {
-				newValue, err := ABIPledgeNew.PackVariable("pledgeInfo", old.Amount, uint64(1))
-				if err != nil {
-					panic(err)
-				}
-				sm = updateStorage(sm, types.AddressPledge, key, newValue)
+				g.PledgeInfo.PledgeInfoMap[cabi.GetPledgeAddrFromPledgeKey(key).String()] = PledgeInfo{old.Amount, 1, cabi.GetBeneficialFromPledgeKey(key)}
 			}
 		} else {
-			sm = updateStorage(sm, types.AddressPledge, key, value)
+			amount := new(big.Int)
+			if err := cabi.ABIPledge.UnpackVariable(amount, cabi.VariableNamePledgeBeneficial, value); err == nil {
+				g.PledgeInfo.PledgeBeneficialMap[cabi.GetBeneficialFromPledgeBeneficialKey(key).String()] = amount
+			}
+
 		}
 	}
-	return m, sm, lm
+	return m, g
 }
 
 var mintageFee = new(big.Int).Mul(big.NewInt(1e3), big.NewInt(1e18))
 
-func exportMintageBalanceAndStorage(m map[types.Address]*big.Int, sm map[types.Address]map[string]string, lm map[types.Address]ledger.VmLogList, trie *trie.Trie) (map[types.Address]*big.Int, map[types.Address]map[string]string, map[types.Address]ledger.VmLogList) {
+func exportMintageBalanceAndStorage(m map[types.Address]*big.Int, g *Genesis, trie *trie.Trie) (map[types.Address]*big.Int, *Genesis) {
+	if g.MintageInfo == nil {
+		g.MintageInfo = &MintageContractInfo{}
+	}
+	g.MintageInfo.TokenInfoMap = make(map[string]TokenInfo)
+	g.MintageInfo.LogList = make([]GenesisVmLog, 0)
 	iter := trie.NewIterator(nil)
 	for {
 		key, value, ok := iter.Next()
@@ -139,29 +157,27 @@ func exportMintageBalanceAndStorage(m map[types.Address]*big.Int, sm map[types.A
 		tokenId := cabi.GetTokenIdFromMintageKey(key)
 		old, _ := cabi.ParseTokenInfo(value)
 		if tokenId == ledger.ViteTokenId {
-			newValue, err := ABIMintageNew.PackVariable("tokenInfo", old.TokenName, old.TokenSymbol, old.TotalSupply, old.Decimals, types.AddressConsensusGroup, old.PledgeAmount, old.WithdrawHeight, old.PledgeAddr, true, helper.Tt256m1, false)
-			if err != nil {
-				panic(err)
-			}
-			sm = updateStorage(sm, types.AddressMintage, tokenId.Bytes(), newValue)
+			g.MintageInfo.TokenInfoMap[tokenId.String()] = TokenInfo{old.TokenName, old.TokenSymbol, old.TotalSupply, old.Decimals, types.AddressConsensusGroup, old.PledgeAmount, old.PledgeAddr, old.WithdrawHeight, helper.Tt256m1, false, true}
 		} else {
 			if old.MaxSupply == nil {
 				old.MaxSupply = big.NewInt(0)
 			}
-			newValue, err := ABIMintageNew.PackVariable("tokenInfo", old.TokenName, old.TokenSymbol, old.TotalSupply, old.Decimals, old.Owner, old.PledgeAmount, old.WithdrawHeight, old.PledgeAddr, old.IsReIssuable, old.MaxSupply, old.OwnerBurnOnly)
-			if err != nil {
-				panic(err)
-			}
-			sm = updateStorage(sm, types.AddressMintage, tokenId.Bytes(), newValue)
+			g.MintageInfo.TokenInfoMap[tokenId.String()] = TokenInfo{old.TokenName, old.TokenSymbol, old.TotalSupply, old.Decimals, old.Owner, old.PledgeAmount, old.PledgeAddr, old.WithdrawHeight, old.MaxSupply, old.OwnerBurnOnly, old.IsReIssuable}
 		}
-		lm = appendLog(lm, types.AddressMintage, util.NewLog(ABIMintageNew, "mint", tokenId))
+		log := util.NewLog(ABIMintageNew, "mint", tokenId)
+		g.MintageInfo.LogList = append(g.MintageInfo.LogList, GenesisVmLog{hex.EncodeToString(log.Data), log.Topics})
 	}
-	return m, sm, lm
+	return m, g
 }
 
 var voteKeyPrefix = []byte{0}
 
-func exportVoteBalanceAndStorage(m map[types.Address]*big.Int, sm map[types.Address]map[string]string, lm map[types.Address]ledger.VmLogList, trie *trie.Trie) (map[types.Address]*big.Int, map[types.Address]map[string]string, map[types.Address]ledger.VmLogList) {
+func exportVoteBalanceAndStorage(m map[types.Address]*big.Int, g *Genesis, trie *trie.Trie) (map[types.Address]*big.Int, *Genesis) {
+	if g.ConsensusGroupInfo == nil {
+		g.ConsensusGroupInfo = &ConsensusGroupContractInfo{}
+	}
+	g.ConsensusGroupInfo.VoteStatusMap = make(map[string]map[string]string)
+	g.ConsensusGroupInfo.VoteStatusMap[types.SNAPSHOT_GID.String()] = make(map[string]string)
 	iterator := trie.NewIterator(nil)
 	for {
 		key, value, ok := iterator.Next()
@@ -172,14 +188,21 @@ func exportVoteBalanceAndStorage(m map[types.Address]*big.Int, sm map[types.Addr
 			continue
 		}
 		voterAddr := cabi.GetAddrFromVoteKey(key)
-		sm = updateStorage(sm, types.AddressConsensusGroup, helper.JoinBytes(voteKeyPrefix, types.SNAPSHOT_GID.Bytes(), voterAddr.Bytes()), value)
+		nodeName := new(string)
+		if err := cabi.ABIVote.UnpackVariable(nodeName, cabi.VariableNameVoteStatus, value); err == nil {
+			g.ConsensusGroupInfo.VoteStatusMap[types.SNAPSHOT_GID.String()][voterAddr.String()] = *nodeName
+		}
 	}
-	return m, sm, lm
+	return m, g
 }
 
 var groupInfoKeyPrefix = []byte{1}
 
-func exportConsensusGroupBalanceAndStorage(m map[types.Address]*big.Int, sm map[types.Address]map[string]string, lm map[types.Address]ledger.VmLogList, trie *trie.Trie) (map[types.Address]*big.Int, map[types.Address]map[string]string, map[types.Address]ledger.VmLogList) {
+func exportConsensusGroupBalanceAndStorage(m map[types.Address]*big.Int, g *Genesis, trie *trie.Trie) (map[types.Address]*big.Int, *Genesis) {
+	if g.ConsensusGroupInfo == nil {
+		g.ConsensusGroupInfo = &ConsensusGroupContractInfo{}
+	}
+	g.ConsensusGroupInfo.ConsensusGroupInfoMap = make(map[string]ConsensusGroupInfo)
 	iterator := trie.NewIterator(nil)
 	for {
 		key, value, ok := iterator.Next()
@@ -192,15 +215,9 @@ func exportConsensusGroupBalanceAndStorage(m map[types.Address]*big.Int, sm map[
 		old := new(types.ConsensusGroupInfo)
 		oldParam := new(cabi.VariableConditionRegisterOfPledge)
 		cabi.ABIConsensusGroup.UnpackVariable(oldParam, cabi.VariableNameConditionRegisterOfPledge, old.RegisterConditionParam)
-		newParam, err := ABIConsensusGroupNew.PackVariable("registerOfPledge", newPledgeAmount, oldParam.PledgeToken, oldParam.PledgeHeight)
-		if err != nil {
-			panic(err)
-		}
 		cabi.ABIConsensusGroup.UnpackVariable(old, cabi.VariableNameConsensusGroupInfo, value)
-		var newValue []byte
 		if gid := cabi.GetGidFromConsensusGroupKey(key); gid == types.SNAPSHOT_GID {
-			newValue, err = ABIConsensusGroupNew.PackVariable(
-				"consensusGroupInfo",
+			g.ConsensusGroupInfo.ConsensusGroupInfoMap[gid.String()] = ConsensusGroupInfo{
 				old.NodeCount,
 				old.Interval,
 				old.PerCount,
@@ -210,15 +227,14 @@ func exportConsensusGroupBalanceAndStorage(m map[types.Address]*big.Int, sm map[
 				uint8(0),
 				old.CountingTokenId,
 				old.RegisterConditionId,
-				newParam,
+				RegisterConditionParam{newPledgeAmount, oldParam.PledgeToken, oldParam.PledgeHeight},
 				old.VoteConditionId,
-				old.VoteConditionParam,
+				VoteConditionParam{},
 				old.Owner,
 				old.PledgeAmount,
-				old.WithdrawHeight)
+				old.WithdrawHeight}
 		} else {
-			newValue, err = ABIConsensusGroupNew.PackVariable(
-				"consensusGroupInfo",
+			g.ConsensusGroupInfo.ConsensusGroupInfoMap[gid.String()] = ConsensusGroupInfo{
 				old.NodeCount,
 				old.Interval,
 				old.PerCount,
@@ -228,20 +244,15 @@ func exportConsensusGroupBalanceAndStorage(m map[types.Address]*big.Int, sm map[
 				uint8(1),
 				old.CountingTokenId,
 				old.RegisterConditionId,
-				newParam,
+				RegisterConditionParam{newPledgeAmount, oldParam.PledgeToken, oldParam.PledgeHeight},
 				old.VoteConditionId,
-				old.VoteConditionParam,
+				VoteConditionParam{},
 				old.Owner,
 				old.PledgeAmount,
-				old.WithdrawHeight)
+				old.WithdrawHeight}
 		}
-		if err != nil {
-			panic(err)
-		}
-		gid := cabi.GetGidFromConsensusGroupKey(key)
-		sm = updateStorage(sm, types.AddressConsensusGroup, append(groupInfoKeyPrefix, gid.Bytes()...), newValue)
 	}
-	return m, sm, lm
+	return m, g
 }
 
 func updateBalance(m map[types.Address]*big.Int, addr types.Address, balance *big.Int) map[types.Address]*big.Int {
@@ -252,39 +263,6 @@ func updateBalance(m map[types.Address]*big.Int, addr types.Address, balance *bi
 		m[addr] = balance
 	}
 	return m
-}
-
-func updateStorage(sm map[types.Address]map[string]string, addr types.Address, key []byte, value []byte) map[types.Address]map[string]string {
-	keyStr := hex.EncodeToString(key)
-	valueStr := hex.EncodeToString(value)
-	if m, ok := sm[addr]; !ok {
-		sm[addr] = make(map[string]string)
-		sm[addr][keyStr] = valueStr
-		return sm
-	} else if v, ok := m[keyStr]; ok {
-		panic("update storage failed, duplicate key " + keyStr + " in addr " + addr.String() + ", origin value " + v + ", new value " + valueStr)
-	} else {
-		sm[addr][keyStr] = valueStr
-		return sm
-	}
-}
-
-func appendLog(lm map[types.Address]ledger.VmLogList, addr types.Address, l *ledger.VmLog) map[types.Address]ledger.VmLogList {
-	list := lm[addr]
-	lm[addr] = append(list, l)
-	return lm
-}
-
-func filterContractStorageMap(sm map[types.Address]map[string]string) map[types.Address]map[string]string {
-	for k, v := range sm[types.AddressVote] {
-		nodeName := new(string)
-		data, _ := hex.DecodeString(v)
-		ABIConsensusGroupNew.UnpackVariable(nodeName, "voteStatus", data)
-		if _, ok := registerNameMap[*nodeName]; !ok {
-			delete(sm[types.AddressVote], k)
-		}
-	}
-	return sm
 }
 
 const (
