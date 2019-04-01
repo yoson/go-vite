@@ -297,9 +297,21 @@ func (nodeManager *ExportNodeManager) Start() error {
 	fmt.Println("======sum vcp balance map======")
 
 	fmt.Println("======genesis======")
+	genesis.GenesisAccountAddress = &ledger.GenesisAccountAddress
+	genesis.AccountBalanceMap = make(map[string]map[string]*big.Int)
+	genesis.AccountBalanceMap[ledger.ViteTokenId.String()] = convertBalanceMap(sumBalanceMap)
+	genesis.AccountBalanceMap[vcpTokenId.String()] = convertBalanceMap(sumVCPBalanceMap)
 	nodeManager.printGenesis(genesis)
 	fmt.Println("======contract storage map======")
 	return nil
+}
+
+func convertBalanceMap(source map[types.Address]*big.Int) map[string]*big.Int {
+	target := make(map[string]*big.Int, len(source))
+	for addr, amount := range source {
+		target[addr.String()] = amount
+	}
+	return target
 }
 
 func (nodeManager *ExportNodeManager) calculateSumBalanceMap(balanceMapList ...map[types.Address]*big.Int) map[types.Address]*big.Int {
@@ -377,7 +389,6 @@ func (nodeManager *ExportNodeManager) printLogMap(logMap map[types.Address]ledge
 
 func (nodeManager *ExportNodeManager) Stop() error {
 	StopNode(nodeManager.node)
-
 	return nil
 }
 
