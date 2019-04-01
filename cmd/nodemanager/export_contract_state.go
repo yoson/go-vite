@@ -98,6 +98,9 @@ func exportRegisterBalanceAndStorage(m map[types.Address]*big.Int, g *Genesis, t
 				g.ConsensusGroupInfo.HisNameMap[gidStr] = make(map[string]string)
 			}
 			g.ConsensusGroupInfo.HisNameMap[gidStr][old.NodeAddr.String()] = old.Name
+			if old.Amount.Sign() > 0 {
+				m = updateBalance(m, old.PledgeAddr, refundPledgeAmount)
+			}
 		}
 	}
 	return m, g
@@ -163,14 +166,13 @@ func exportMintageBalanceAndStorage(m map[types.Address]*big.Int, g *Genesis, tr
 				old.MaxSupply = big.NewInt(0)
 			}
 			g.MintageInfo.TokenInfoMap[tokenId.String()] = TokenInfo{old.TokenName, old.TokenSymbol, old.TotalSupply, old.Decimals, old.Owner, old.PledgeAmount, old.PledgeAddr, old.WithdrawHeight, old.MaxSupply, old.OwnerBurnOnly, old.IsReIssuable}
+			m = updateBalance(m, old.PledgeAddr, mintageFee)
 		}
 		log := util.NewLog(ABIMintageNew, "mint", tokenId)
 		g.MintageInfo.LogList = append(g.MintageInfo.LogList, GenesisVmLog{hex.EncodeToString(log.Data), log.Topics})
 	}
 	return m, g
 }
-
-var voteKeyPrefix = []byte{0}
 
 func exportVoteBalanceAndStorage(m map[types.Address]*big.Int, g *Genesis, trie *trie.Trie) (map[types.Address]*big.Int, *Genesis) {
 	if g.ConsensusGroupInfo == nil {
@@ -195,8 +197,6 @@ func exportVoteBalanceAndStorage(m map[types.Address]*big.Int, g *Genesis, trie 
 	}
 	return m, g
 }
-
-var groupInfoKeyPrefix = []byte{1}
 
 func exportConsensusGroupBalanceAndStorage(m map[types.Address]*big.Int, g *Genesis, trie *trie.Trie) (map[types.Address]*big.Int, *Genesis) {
 	if g.ConsensusGroupInfo == nil {
