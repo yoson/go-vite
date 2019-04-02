@@ -137,8 +137,6 @@ func exportPledgeBalanceAndStorage(m map[types.Address]*big.Int, g *Genesis, tri
 	return m, g
 }
 
-var mintageFee = new(big.Int).Mul(big.NewInt(1e3), big.NewInt(1e18))
-
 func exportMintageBalanceAndStorage(m map[types.Address]*big.Int, g *Genesis, trie *trie.Trie) (map[types.Address]*big.Int, *Genesis) {
 	if g.MintageInfo == nil {
 		g.MintageInfo = &MintageContractInfo{}
@@ -166,7 +164,6 @@ func exportMintageBalanceAndStorage(m map[types.Address]*big.Int, g *Genesis, tr
 				old.MaxSupply = big.NewInt(0)
 			}
 			g.MintageInfo.TokenInfoMap[tokenId.String()] = TokenInfo{old.TokenName, old.TokenSymbol, old.TotalSupply, old.Decimals, old.Owner, old.PledgeAmount, old.PledgeAddr, old.WithdrawHeight, old.MaxSupply, old.OwnerBurnOnly, old.IsReIssuable}
-			m = updateBalance(m, old.PledgeAddr, mintageFee)
 		}
 		log := util.NewLog(ABIMintageNew, "mint", tokenId)
 		g.MintageInfo.LogList = append(g.MintageInfo.LogList, GenesisVmLog{hex.EncodeToString(log.Data), log.Topics})
