@@ -56,7 +56,21 @@ func (mp *MockPeer) HasBlock(hash types.Hash) bool {
 	return false
 }
 
-func NewMockPeer(id string, height uint64, head types.Hash) *MockPeer {
+func (mp *MockPeer) Info() PeerInfo {
+	return PeerInfo{
+		ID:      "",
+		Addr:    "",
+		Head:    "",
+		Height:  0,
+		Created: "",
+	}
+}
+
+func (mp *MockPeer) HasBlock(hash types.Hash) bool {
+	return false
+}
+
+func NewMockPeer() *MockPeer {
 	mp := &MockPeer{
 		Handlers:    make(map[ViteCmd]Handler),
 		addr:        &net2.TCPAddr{},

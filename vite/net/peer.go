@@ -293,7 +293,7 @@ func (m *peerSet) SyncPeer() Peer {
 	return l[mid]
 }
 
-func (m *peerSet) Add(peer Peer) error {
+func (m *peerSet) Add(peer *peer) error {
 	if peer == nil {
 		return errNilPeer
 	}
@@ -315,7 +315,7 @@ func (m *peerSet) Add(peer Peer) error {
 	return nil
 }
 
-func (m *peerSet) Del(peer Peer) {
+func (m *peerSet) Del(peer *peer) {
 	if peer == nil {
 		return
 	}

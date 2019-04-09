@@ -29,7 +29,7 @@ func NewContractTaskProcessor(worker *ContractWorker, index int) *ContractTaskPr
 		worker:     worker,
 		blocksPool: worker.uBlocksPool,
 
-		log: worker.log.New("tp", index),
+		log: slog.New("tp", index),
 	}
 
 	return task
@@ -78,12 +78,13 @@ func (tp *ContractTaskProcessor) accEvent() *producerevent.AccountStartEvent {
 
 func (tp *ContractTaskProcessor) processOneAddress(task *contractTask) {
 	defer monitor.LogTime("onroad", "processOneAddress", time.Now())
+	plog := tp.log.New("processAddr", task.Addr, "remainQuota", task.Quota, "sbHash", tp.worker.currentSnapshotHash)
 
 	sBlock := tp.worker.uBlocksPool.GetNextContractTx(task.Addr)
 	if sBlock == nil {
 		return
 	}
-	plog := tp.log.New("processAddr", task.Addr, "remainQuota", task.Quota, "sbHash", tp.worker.currentSnapshotHash)
+	plog.Info(fmt.Sprintf("block processing: accAddr=%v,height=%v,hash=%v,remainQuota=%d", sBlock.AccountAddress, sBlock.Height, sBlock.Hash, task.Quota))
 	if latestBlock, _ := tp.worker.manager.Chain().GetLatestAccountBlock(&task.Addr); latestBlock != nil {
 		plog.Info(fmt.Sprintf("contract-prev: hash=%v,height=%v,sbHash:%v", latestBlock.Hash, latestBlock.Height, latestBlock.SnapshotHash))
 	}
@@ -97,7 +98,7 @@ func (tp *ContractTaskProcessor) processOneAddress(task *contractTask) {
 	}
 
 	if tp.worker.manager.chain.IsSuccessReceived(&sBlock.ToAddress, &sBlock.Hash) {
-		blog.Info("had receive for account block")
+		plog.Error("had receive for account block", "addr", sBlock.AccountAddress, "hash", sBlock.Hash)
 		return
 	}
 
@@ -126,7 +127,9 @@ func (tp *ContractTaskProcessor) processOneAddress(task *contractTask) {
 		blog.Info("packConsensusMessage failed", "error", err)
 		return
 	}
+
 	blog.Info(fmt.Sprintf("fittestSbHash:%v", consensusMessage.SnapshotHash))
+
 	gen, err := generator.NewGenerator(tp.worker.manager.Chain(), &consensusMessage.SnapshotHash, nil, &sBlock.ToAddress)
 	if err != nil {
 		blog.Error("NewGenerator failed", "error", err)
@@ -168,7 +171,7 @@ func (tp *ContractTaskProcessor) processOneAddress(task *contractTask) {
 		for _, v := range genResult.BlockGenList {
 			if v != nil && v.AccountBlock != nil {
 				if task.Quota <= v.AccountBlock.Quota {
-					blog.Info(fmt.Sprintf("addr %v out of quota expected during snapshotTime %v.", task.Addr, tp.worker.currentSnapshotHash))
+					plog.Error(fmt.Sprintf("addr %v out of quota expected during snapshotTime %v.", task.Addr, tp.worker.currentSnapshotHash))
 					tp.worker.addIntoBlackList(task.Addr)
 					return
 				}
