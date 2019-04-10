@@ -43,15 +43,15 @@ var (
 	NewMarketFeeDividendAmount = new(big.Int).Mul(commonTokenPow, big.NewInt(1000))
 	NewMarketFeeDonateAmount = new(big.Int).Sub(NewMarketFeeAmount, NewMarketFeeDividendAmount)
 
-	bitcoinToken, _ = types.HexToTokenTypeId("tti_4e88a475c675971dab7ec917")
-	ethToken, _     = types.HexToTokenTypeId("tti_2152a3d33c5e2fc90073fad4")
-	usdtToken, _    = types.HexToTokenTypeId("tti_77a7a54d540d5c587dd666d6")
+	bitcoinToken, _ = types.HexToTokenTypeId("tti_598732b3a9908f472856901e")
+	ethToken, _     = types.HexToTokenTypeId("tti_1e73f8f93b58a849911ff4dd")
+	usdtToken, _    = types.HexToTokenTypeId("tti_69f11f718c43ef691bb1214c")
 	//quoteTokenToDecimals = map[types.TokenTypeId]int{ledger.ViteTokenId : 18, bitcoinToken : 8, ethToken : 8, usdtToken : 5}
 
-	viteMinAmount       = commonTokenPow // 1 VITE
-	bitcoinMinAmount    = big.NewInt(1000000) //0.01 BTC
-	ethMinAmount        = big.NewInt(10000000)//0.1 ETH
-	usdtMinAmount       = big.NewInt(100000)//1 USDT
+	viteMinAmount       = new(big.Int).Mul(commonTokenPow, big.NewInt(100)) // 100 VITE
+	bitcoinMinAmount    = big.NewInt(50000) //0.0005 BTC
+	ethMinAmount        = new(big.Int).Exp(helper.Big10, new(big.Int).SetUint64(uint64(16)), nil) //0.01 ETH
+	usdtMinAmount       = big.NewInt(100) //1 USDT
 	QuoteTokenMinAmount = map[types.TokenTypeId]*big.Int{ledger.ViteTokenId : viteMinAmount, bitcoinToken: bitcoinMinAmount, ethToken: ethMinAmount, usdtToken : usdtMinAmount}
 )
 
