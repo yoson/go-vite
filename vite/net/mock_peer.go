@@ -56,28 +56,11 @@ func (mp *MockPeer) HasBlock(hash types.Hash) bool {
 	return false
 }
 
-func (mp *MockPeer) Info() PeerInfo {
-	return PeerInfo{
-		ID:      "",
-		Addr:    "",
-		Head:    "",
-		Height:  0,
-		Created: "",
-	}
-}
-
-func (mp *MockPeer) HasBlock(hash types.Hash) bool {
-	return false
-}
-
 func NewMockPeer() *MockPeer {
 	mp := &MockPeer{
 		Handlers:    make(map[ViteCmd]Handler),
 		addr:        &net2.TCPAddr{},
 		faddr:       &net2.TCPAddr{},
-		id:          id,
-		height:      height,
-		head:        head,
 		knownblocks: make(map[types.Hash]struct{}),
 		ctime:       time.Now(),
 	}
