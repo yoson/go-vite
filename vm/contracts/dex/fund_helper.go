@@ -43,9 +43,9 @@ var (
 	NewMarketFeeDividendAmount = new(big.Int).Mul(commonTokenPow, big.NewInt(1000))
 	NewMarketFeeDonateAmount = new(big.Int).Sub(NewMarketFeeAmount, NewMarketFeeDividendAmount)
 
-	bitcoinToken, _ = types.HexToTokenTypeId("tti_598732b3a9908f472856901e")
-	ethToken, _     = types.HexToTokenTypeId("tti_1e73f8f93b58a849911ff4dd")
-	usdtToken, _    = types.HexToTokenTypeId("tti_69f11f718c43ef691bb1214c")
+	bitcoinToken, _ = types.HexToTokenTypeId("tti_d452b67c8acad4d4b91e8f86")
+	ethToken, _     = types.HexToTokenTypeId("tti_2856629161b3b980759f7ec1")
+	usdtToken, _    = types.HexToTokenTypeId("tti_acf4b362cfa6b07a5a1ae475")
 	//quoteTokenToDecimals = map[types.TokenTypeId]int{ledger.ViteTokenId : 18, bitcoinToken : 8, ethToken : 8, usdtToken : 5}
 
 	viteMinAmount       = new(big.Int).Mul(commonTokenPow, big.NewInt(100)) // 100 VITE
