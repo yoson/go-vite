@@ -44,7 +44,7 @@ var (
 	NewMarketFeeDonateAmount = new(big.Int).Sub(NewMarketFeeAmount, NewMarketFeeDividendAmount)
 
 	bitcoinToken, _ = types.HexToTokenTypeId("tti_d452b67c8acad4d4b91e8f86")
-	ethToken, _     = types.HexToTokenTypeId("tti_2856629161b3b980759f7ec1")
+	ethToken, _     = types.HexToTokenTypeId("tti_1ac973563ed485d15645f60c")
 	usdtToken, _    = types.HexToTokenTypeId("tti_acf4b362cfa6b07a5a1ae475")
 	//quoteTokenToDecimals = map[types.TokenTypeId]int{ledger.ViteTokenId : 18, bitcoinToken : 8, ethToken : 8, usdtToken : 5}
 
